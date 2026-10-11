@@ -32,6 +32,7 @@ import { getPack as registryGetPack, renderRuleLine } from "../packs/index";
 import { systemClock, type Clock } from "../clock";
 import { DIFF_CAP_CHARS, QUOTE_CAP_CHARS, REFEREE_REPLY_MS } from "../config";
 import { runClaimedJob, type JobHandler, type JobOutcome } from "../jobs";
+import { trackEvent } from "../observe/raindrop";
 import { checkAuthenticity, confirmHandle } from "./authenticity";
 import { acceptAnsweredProof, answerHasCode, loadRequest, markUnanswered, openExtraProofRequest, ownsRequest } from "./requests";
 import { cap, dayLabel, historyEntry, isFinalStatus, loadLatestContract, outcomeOf, writeProofEvent } from "./state";
@@ -919,9 +920,31 @@ async function afterVerdict(
     at: now,
   });
 
-  // U20 HOOK (rule.verdict): after AE1 passes on the deployed site, U20 adds its one Raindrop
-  // call here with { proof_id, decided_by, outcome, rule, ai_calls, latency_ms } from
-  // proof.verdict. Do not import or call the observe/ wrapper before that merge (KTD24).
+  // U20 (KTD24): a rule-decided verdict with no AI call is recorded in Raindrop. Fired after the
+  // verdict write and never awaited, so Raindrop can neither slow nor fail the verdict. Ids,
+  // rule keys and outcomes only (KTD15).
+  const v = proof.verdict;
+  if (v && v.decided_by === "rule" && v.ai_calls === 0) {
+    void trackEvent({
+      eventId: proof._id,
+      userId: proof.player_id,
+      event: "rule.verdict",
+      properties: {
+        challenge_type: proof.challenge_type,
+        challenge_id: proof.challenge_id,
+        proof_id: proof._id,
+        decided_by: v.decided_by,
+        outcome: v.outcome,
+        rule_key: v.rule?.rule_key ?? null,
+        rule_version: v.rule?.version ?? null,
+        cheat_class: v.cheat_class,
+        payout_hold: v.payout_hold,
+        contract_version: v.contract_version,
+        ai_call_count: 0,
+        latency_ms: v.latency_ms,
+      },
+    });
+  }
 
   if (proof.status === "rejected" && proof.verdict?.decided_by === "ai") await queueLearning(db, proof, now);
 

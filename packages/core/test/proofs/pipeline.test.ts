@@ -36,6 +36,7 @@ import {
   sha,
   type Doubles,
 } from "./helpers";
+import { stubRaindrop, TEST_RAINDROP_KEY } from "../helpers/raindrop";
 
 let mongo: TestMongo;
 beforeAll(async () => {
@@ -245,6 +246,78 @@ describe("AE1: the rule gate replaces the referee", () => {
     expect(input.trust_level).toBe("rechecked");
     expect(input.cheat_classes).toEqual(["rename_only", "filler"]);
     expect(input.contract_version).toBe(1);
+  });
+});
+
+describe("U20: Raindrop rule.verdict (KTD24)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  async function ruleDecided() {
+    const s = await stage();
+    const maya = await s.member("Maya");
+    s.gh.addCommit({ sha: sha(1), author: "maya", message: "rename userId to accountId", date: at(30 * SEC) });
+    s.gh.addCommit({ sha: sha(2), author: "maya", message: "rename fetchUser to loadUser", date: at(90 * SEC) });
+    return { s, maya };
+  }
+
+  it("records one rule.verdict event with ai_call_count 0 for a rule-decided verdict, and none for the AI verdict", async () => {
+    const { s, maya } = await ruleDecided();
+    const raindrop = stubRaindrop();
+
+    const first = await s.submit(maya, commit("maya", 1));
+    expect(first.ok && first.verdict?.decided_by).toBe("ai");
+    await raindrop.settle();
+    expect(raindrop.calls).toHaveLength(0);
+
+    await activateRule(s.db, s.pack, s.challenge, RENAME_RULE);
+    const second = await s.submit(maya, commit("maya", 2), { now: at(120 * SEC) });
+    expect(second.ok && second.verdict?.decided_by).toBe("rule");
+    if (!second.ok) return;
+    await raindrop.settle();
+
+    expect(raindrop.calls).toHaveLength(1);
+    const [call] = raindrop.events();
+    expect(call?.authorization).toBe(`Bearer ${TEST_RAINDROP_KEY}`);
+    expect(call?.body).toHaveLength(1);
+    const body = call!.body[0]!;
+    expect(body).toMatchObject({
+      event_id: second.proof._id,
+      user_id: maya._id,
+      event: "rule.verdict",
+      properties: {
+        proof_id: second.proof._id,
+        challenge_id: s.challenge._id,
+        decided_by: "rule",
+        outcome: "reject",
+        rule_key: "rename-only",
+        rule_version: 1,
+        ai_call_count: 0,
+      },
+    });
+    expect(body).not.toHaveProperty("ai_data");
+    // KTD15: no commit message or other player text leaves Lane.
+    expect(JSON.stringify(body)).not.toContain("rename fetchUser");
+  });
+
+  it("a rejecting Raindrop fetch leaves the rule-decided verdict unchanged", async () => {
+    const { s, maya } = await ruleDecided();
+    await s.submit(maya, commit("maya", 1));
+    await activateRule(s.db, s.pack, s.challenge, RENAME_RULE);
+    const raindrop = stubRaindrop({ reject: true });
+
+    const second = await s.submit(maya, commit("maya", 2), { now: at(120 * SEC) });
+    await raindrop.settle();
+
+    expect(raindrop.calls).toHaveLength(1);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.outcome).toBe("rejected");
+    expect(second.verdict?.decided_by).toBe("rule");
+    const stored = await collections(s.db).proofs.findOne({ _id: second.proof._id });
+    expect(stored?.status).toBe("rejected");
   });
 });
 

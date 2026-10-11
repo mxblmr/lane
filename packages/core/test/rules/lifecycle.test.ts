@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Db } from "mongodb";
 import { startReplSet, type TestMongo } from "../../src/testing/mongo";
 import { collections } from "../../src/schema/collections";
@@ -20,6 +20,7 @@ import {
   shipFeatures,
   T0,
 } from "./u9-fixtures";
+import { stubRaindrop, TEST_RAINDROP_KEY } from "../helpers/raindrop";
 
 let mongo: TestMongo;
 beforeAll(async () => {
@@ -337,5 +338,79 @@ describe("rule lifecycle (KTD10, R21 to R23)", () => {
     expect(done.ok && done.status).toBe("active");
     expect(done.ok && done.contracts).toEqual([]);
     expect(await collections(db).events.countDocuments({ kind: "rule.publish_failed" })).toBe(1);
+  });
+});
+
+describe("U20: Raindrop rule_activated (KTD24)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  async function askMoreCandidate(db: Db, evidence: { proof_ids: string[]; example_keys: string[]; dispute_ids: string[] }) {
+    provideServices({ contracts: contractsDouble().service });
+    await insertExamples(db, "customers", ae2Examples());
+    const proposed = await proposeRule(
+      db,
+      proposal({ challenge_type: "customers", when: PERSONAL_NO_NOTES_WHEN, action: "ask_more", cheat_class: "all_personal_email", source: "dispute", evidence }),
+      { now: T0 },
+    );
+    if (!proposed.ok) throw new Error(proposed.error.message);
+    const tested = await testCandidate(db, proposed.rule._id, { now: T0 });
+    if (!tested.ok || !tested.gate.passed) throw new Error("candidate did not pass");
+    return proposed.rule;
+  }
+
+  it("sends one POSITIVE rule_activated signal on the rule-lab run's event id, once", async () => {
+    const db = await mongo.freshDb();
+    const rule = await askMoreCandidate(db, { proof_ids: ["prf_evidence_1"], example_keys: [], dispute_ids: [] });
+    const raindrop = stubRaindrop();
+
+    const done = await activateRule(db, { candidate_id: rule._id, execution_id: "exec_promoter_1", by: "promoter" }, { now: T0 });
+    await activateRule(db, { candidate_id: rule._id, by: "promoter" }, { now: T0 });
+    await raindrop.settle();
+
+    expect(done.ok && done.status).toBe("active");
+    expect(raindrop.calls).toHaveLength(1);
+    const [call] = raindrop.signals();
+    expect(call?.authorization).toBe(`Bearer ${TEST_RAINDROP_KEY}`);
+    expect(call?.body).toEqual([
+      {
+        event_id: "prf_evidence_1",
+        signal_name: "rule_activated",
+        sentiment: "POSITIVE",
+        signal_type: "default",
+        properties: expect.objectContaining({
+          rule_id: rule._id,
+          rule_key: rule.rule_key,
+          rule_version: 1,
+          action: "ask_more",
+          execution_id: "exec_promoter_1",
+        }),
+      },
+    ]);
+  });
+
+  it("sends nothing when the rule names no rule-lab event", async () => {
+    const db = await mongo.freshDb();
+    const rule = await askMoreCandidate(db, { proof_ids: [], example_keys: [], dispute_ids: [] });
+    const raindrop = stubRaindrop();
+    const done = await activateRule(db, { candidate_id: rule._id, by: "promoter" }, { now: T0 });
+    await raindrop.settle();
+    expect(done.ok && done.status).toBe("active");
+    expect(raindrop.calls).toHaveLength(0);
+  });
+
+  it("a rejecting Raindrop fetch leaves the activation and its contract version unchanged", async () => {
+    const db = await mongo.freshDb();
+    const rule = await askMoreCandidate(db, { proof_ids: [], example_keys: ["live-prf_2"], dispute_ids: [] });
+    const raindrop = stubRaindrop({ reject: true });
+    const done = await activateRule(db, { candidate_id: rule._id, by: "promoter" }, { now: T0 });
+    await raindrop.settle();
+    expect(raindrop.signals()[0]?.body[0]?.event_id).toBe("live-prf_2");
+    expect(done.ok && done.status).toBe("active");
+    expect(done.ok && done.already_active).toBe(false);
+    expect((await collections(db).rules.findOne({ _id: rule._id }))?.status).toBe("active");
   });
 });
