@@ -11,9 +11,10 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "start": "node --enable-source-maps dist/rule_lab_agent/main.js",
-    "dev": "tsx watch src/rule_lab_agent/main.ts"
+    "dev": "tsx watch src/rule_lab_agent/main.ts",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@mongodb-js/agent-engine-sdk": ">=0.11.3 <1",

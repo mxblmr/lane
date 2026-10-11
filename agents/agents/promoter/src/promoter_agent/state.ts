@@ -4,6 +4,13 @@ import { Annotation } from "@langchain/langgraph";
 import { messagesReducer, type LanePayload, type MessagesUpdate } from "./lane.js";
 
 /** The reviewer's answer after normalization: anything but an explicit approve is a decline. */
+export type PromoterResult = {
+  decision: "activated" | "rejected" | "declined";
+  candidate_id: string;
+  rule_status: string | null;
+  notes: string;
+};
+
 export type HumanReview = { decision: "approve" | "decline"; reviewer_notes: string };
 
 /**
@@ -24,6 +31,11 @@ export const PromoterStateAnnotation = Annotation.Root({
     default: () => 0,
   }),
   review: Annotation<HumanReview | null>({
+    reducer: (_left, right) => right,
+    default: () => null,
+  }),
+  /** The promoter's decision, mirrors U3 `PromoterOutputSchema` (U10). */
+  result: Annotation<PromoterResult | null>({
     reducer: (_left, right) => right,
     default: () => null,
   }),
