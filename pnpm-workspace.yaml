@@ -1,0 +1,10 @@
+packages:
+  - apps/web
+  - packages/core
+  - scripts
+
+onlyBuiltDependencies:
+  - esbuild
+  - mongodb-memory-server
+  - sharp
+  - unrs-resolver

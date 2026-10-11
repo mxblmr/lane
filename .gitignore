@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# tests
+coverage/
+
+# env and secrets: only .env.example is committed
+.env
+.env.*
+!.env.example
+
+# vercel
+.vercel/
+
+# agent engine (python or node build output outside the pnpm workspace)
+agents/**/node_modules/
+agents/**/.venv/
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+pnpm-debug.log*
