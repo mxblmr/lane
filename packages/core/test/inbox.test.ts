@@ -85,6 +85,83 @@ describe("inbox add (KTD6)", () => {
   });
 });
 
+describe("inbox add inside a caller's transaction (U6 confirm, join and publish)", () => {
+  it("writes through the session: committed adds persist, aborted adds leave nothing", async () => {
+    const { db, gary, challenge } = await world();
+    const kept = infoItem(gary._id, challenge._id, "contract_update", "Contract version 2 is live.");
+    await mongo.client.withSession((session) =>
+      session.withTransaction(async () => {
+        const res = await addInboxItem(db, kept, { session, now: at(10) });
+        expect(res.created).toBe(true);
+      }),
+    );
+    expect(await collections(db).inbox.countDocuments({ kind: "contract_update" })).toBe(1);
+
+    const dropped = infoItem(gary._id, challenge._id, "message", "This add is rolled back.");
+    const session = mongo.client.startSession();
+    try {
+      session.startTransaction();
+      await addInboxItem(db, dropped, { session, now: at(11) });
+      await session.abortTransaction();
+    } finally {
+      await session.endSession();
+    }
+    expect(await collections(db).inbox.countDocuments({ kind: "message" })).toBe(0);
+  });
+
+  it("a repeat inside a transaction returns the open item without aborting it", async () => {
+    const { db, gary, priya, challenge, garyProof } = await world();
+    const first = await addInboxItem(
+      db,
+      extraProofItem({ player_id: gary._id, challenge_id: challenge._id, proof_id: garyProof._id, due_at: at(200) }),
+      { now: at(10) },
+    );
+    const check = surpriseCheckItem({ player_id: gary._id, challenge_id: challenge._id, day_index: 1, slot: 0, release_at: at(360), due_at: at(450) });
+    await addInboxItem(db, check, { now: at(10) });
+    await mongo.client.withSession((session) =>
+      session.withTransaction(async () => {
+        const again = await addInboxItem(
+          db,
+          extraProofItem({ player_id: gary._id, challenge_id: challenge._id, proof_id: garyProof._id, due_at: at(300), notify: [priya._id] }),
+          { session, now: at(20) },
+        );
+        expect(again.created).toBe(false);
+        expect(again.item._id).toBe(first.item._id);
+        expect((await addInboxItem(db, check, { session, now: at(20) })).created).toBe(false);
+      }),
+    );
+    const stored = await collections(db).inbox.findOne({ _id: first.item._id });
+    expect(stored?.notify_player_ids).toEqual([priya._id]);
+    expect(await collections(db).inbox.countDocuments()).toBe(2);
+  });
+
+  it("expire by item id closes a not-yet-due bind request at once (U6 rebind)", async () => {
+    const { db, gary } = await world();
+    const { item } = await addInboxItem(
+      db,
+      {
+        player_id: gary._id,
+        challenge_id: null,
+        kind: "bind_code",
+        actor: "player",
+        instruction: "Put the code 7391 in your GitHub bio.",
+        answer_tool: "lane_submit_proof",
+        answer_args: {},
+        day_index: null,
+        subject_proof_id: null,
+        slot: null,
+        code: "7391",
+        release_at: null,
+        due_at: at(5000),
+      },
+      { now: at(10) },
+    );
+    const { expired } = await expireInboxItems(db, { now: at(20), item_ids: [item._id] });
+    expect(expired.map((i) => i._id)).toEqual([item._id]);
+    expect((await collections(db).inbox.findOne({ _id: item._id }))?.status).toBe("expired");
+  });
+});
+
 describe("inbox resolve", () => {
   it("only the player who owns the subject proof can answer, and Priya answering Gary's request changes nothing", async () => {
     const { db, gary, priya, challenge, garyProof } = await world();
