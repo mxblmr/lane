@@ -102,8 +102,10 @@ export const samSecondRename: Step = {
 
     const live = await waitForRuleLive(ctx);
     const liveAt = ctx.io.now();
-    const newLines = (live.contract?.does_not_count ?? []).filter((l) => !s.base_lines.includes(l));
-    ctx.io.log(`rule live: contract v${contractVersion(live)}${newLines.length ? ` adds "${newLines.join("; ")}"` : ""}`);
+    const changes = live.contract?.changes?.length
+      ? live.contract.changes
+      : (live.contract?.does_not_count ?? []).filter((l) => !s.base_lines.includes(l));
+    ctx.io.log(`rule live: contract v${contractVersion(live)}${changes.length ? `: ${changes.join(" ")}` : ""}`);
 
     const commit = await sam.github.putFile(STAGE_FILE, r.content, `Rename ${r.from} to ${r.to}`, file.sha);
     const v = await submitAndSettle(ctx, sam.lane, { challenge_id: s.challenge_id, repo: sam.github.repo, sha: commit.sha });

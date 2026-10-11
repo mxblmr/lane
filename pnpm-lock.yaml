@@ -26,6 +26,9 @@ importers:
       '@lane/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@lane/scripts':
+        specifier: workspace:*
+        version: link:../../scripts
       '@modelcontextprotocol/server':
         specifier: ^2.3.1
         version: 2.3.1

@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@lane/core": "workspace:*",
+    "@lane/scripts": "workspace:*",
     "@modelcontextprotocol/server": "^2.3.1",
     "mcp-handler": "^2.3.0",
     "mongodb": "^7.7.0",

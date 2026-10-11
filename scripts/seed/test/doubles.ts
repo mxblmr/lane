@@ -8,6 +8,7 @@ import { challengesService } from "@lane/core/challenges";
 import { contractsService } from "@lane/core/contracts";
 import { playersService } from "@lane/core/players";
 import { inboxService } from "@lane/core/inbox";
+import { provideU18Services } from "@lane/core/checkin";
 import { collections } from "@lane/core/schema/collections";
 import { fail, newId } from "@lane/core/schema/common";
 import type { Rule } from "@lane/core/schema/rules";
@@ -74,6 +75,8 @@ export function upstreamDoubles(calls: DoubleCalls = { rollback: 0, decide: 0, e
     return inboxService.expire(db, input);
   };
 
+  // U18: check-in, inbox, feed, tick, disputes and ask, as the web app wires them.
+  provideU18Services();
   provideServices({
     players: playersService,
     challenges: challengesService,
