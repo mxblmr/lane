@@ -1,5 +1,5 @@
 import { appendLedgerEntry } from "@lane/core/ledger";
-import { readSettings } from "@lane/core/config";
+import { readSettings, updateSettings } from "@lane/core/config";
 import { collections, isDuplicateKeyError } from "@lane/core/schema/collections";
 import { newId, type ChallengeType, type HandlePlatform } from "@lane/core/schema/common";
 import type { Handle, Player } from "@lane/core/schema/players";
@@ -140,9 +140,11 @@ export interface SeedResult {
 
 export async function seed(
   db: Db,
-  input: { players: SeedPlayerInput[]; types: readonly ChallengeType[]; now?: Date },
+  input: { players: SeedPlayerInput[]; types: readonly ChallengeType[]; now?: Date; surprise_checks_enabled?: boolean },
 ): Promise<SeedResult> {
   const now = input.now ?? new Date();
+  // Demo days last minutes, so surprise checks stay off on stage unless a scenario tests AE4.
+  await updateSettings(db, { surprise_checks_enabled: input.surprise_checks_enabled ?? false }, now);
   const players = await seedPlayers(db, input.players, now);
   const stage = await seedStageChallenges(db, input.types, now);
   return { players, stage };

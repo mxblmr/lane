@@ -4,6 +4,7 @@ import { provideServices, resetServices } from "@lane/core/interfaces";
 import { collections } from "@lane/core/schema/collections";
 import { CHALLENGE_TYPES, newId } from "@lane/core/schema/common";
 import { ledgerBalanceOf } from "@lane/core/ledger";
+import { readSettings, updateSettings } from "@lane/core/config";
 import { hashLaneKey, MissingEnvError, seedPlayerInputs, readPlayerGithub } from "../roster";
 import { seed } from "../seed";
 import { resetStage, resetStageDetailed } from "../reset";
@@ -93,9 +94,14 @@ describe("seed", () => {
   });
 
   it("parses the CLI commands", () => {
-    expect(parseCliArgs(["seed"])).toEqual({ command: "seed", types: ALL });
-    expect(parseCliArgs(["seed", "--types", "ship_week"])).toEqual({ command: "seed", types: ["ship_week"] });
-    expect(parseCliArgs(["reset", "--type=ship_week"])).toEqual({ command: "reset", type: "ship_week" });
+    expect(parseCliArgs(["seed"])).toEqual({ command: "seed", types: ALL, surprise_checks: false });
+    expect(parseCliArgs(["seed", "--types", "ship_week"])).toEqual({ command: "seed", types: ["ship_week"], surprise_checks: false });
+    expect(parseCliArgs(["reset", "--type=ship_week"])).toEqual({ command: "reset", type: "ship_week", surprise_checks: false });
+    expect(parseCliArgs(["reset", "--type", "ship_week", "--surprise-checks"])).toEqual({
+      command: "reset",
+      type: "ship_week",
+      surprise_checks: true,
+    });
     expect(() => parseCliArgs(["reset"])).toThrow(/--type/);
     expect(() => parseCliArgs(["seed", "--types", "fitness"])).toThrow(/Unknown challenge type/);
   });
@@ -216,6 +222,17 @@ describe("reset (KTD22)", () => {
     // The customers type keeps its learned rule and examples.
     expect(await col.rules.countDocuments({ challenge_type: "customers", status: "active" })).toBe(1);
     expect(await col.examples.countDocuments({ challenge_type: "customers" })).toBe(1);
+  });
+
+  it("turns surprise checks off for the stage unless an AE4 scenario asks for them", async () => {
+    const db = await seeded();
+    expect((await readSettings(db)).surprise_checks_enabled).toBe(false);
+    await updateSettings(db, { surprise_checks_enabled: true });
+    expect((await resetStage(db, { challenge_type: "ship_week", by: "test" })).ok).toBe(true);
+    expect((await readSettings(db)).surprise_checks_enabled).toBe(false);
+    const ae4 = await resetStageDetailed(db, { challenge_type: "ship_week", by: "test", surprise_checks_enabled: true });
+    expect(ae4.ok).toBe(true);
+    expect((await readSettings(db)).surprise_checks_enabled).toBe(true);
   });
 
   it("two concurrent resets leave one new active stage challenge and refund each stake once", async () => {

@@ -1,15 +1,15 @@
 /**
- * Services for U13's tests. U6 (players, challenges, contracts) is real. U9 (rollback and rule
- * approvals) and U18 (inbox add and expiry) are doubles that keep real state in the test database
- * with U3's schemas, until those units merge. Test helper only.
+ * Services for U13's tests. U6 (players, challenges, contracts) and U18 (inbox) are real. U9
+ * (rollback and rule approvals) is a double that keeps real state in the test database with U3's
+ * schemas, until it merges. Test helper only.
  */
 import { provideServices, services, type LaneServices } from "@lane/core/interfaces";
 import { challengesService } from "@lane/core/challenges";
 import { contractsService } from "@lane/core/contracts";
 import { playersService } from "@lane/core/players";
-import { collections, isDuplicateKeyError } from "@lane/core/schema/collections";
+import { inboxService } from "@lane/core/inbox";
+import { collections } from "@lane/core/schema/collections";
 import { fail, newId } from "@lane/core/schema/common";
-import type { InboxItem } from "@lane/core/schema/inbox";
 import type { Rule } from "@lane/core/schema/rules";
 import type { RuleApproval } from "@lane/core/schema/approvals";
 import type { Db } from "../stage";
@@ -18,10 +18,9 @@ export interface DoubleCalls {
   rollback: number;
   decide: number;
   expire: number;
-  inbox_add: number;
 }
 
-export function upstreamDoubles(calls: DoubleCalls = { rollback: 0, decide: 0, expire: 0, inbox_add: 0 }) {
+export function upstreamDoubles(calls: DoubleCalls = { rollback: 0, decide: 0, expire: 0 }) {
   const rollback: LaneServices["lifecycle"]["rollback"] = async (db, input) => {
     calls.rollback += 1;
     const col = collections(db);
@@ -70,40 +69,9 @@ export function upstreamDoubles(calls: DoubleCalls = { rollback: 0, decide: 0, e
     return { ok: true, approval, decided: true, follow_up, rule_status: "rejected" };
   };
 
-  const add: LaneServices["inbox"]["add"] = async (db, item, opts) => {
-    calls.inbox_add += 1;
-    const now = opts?.now ?? new Date();
-    const doc: InboxItem = {
-      ...item,
-      _id: newId("inbox"),
-      status: item.status ?? "open",
-      notify_player_ids: item.notify_player_ids ?? [],
-      answer_proof_id: null,
-      created_at: now,
-      updated_at: now,
-      resolved_at: null,
-      delivered_at: null,
-    };
-    try {
-      await collections(db).inbox.insertOne(doc, { session: opts?.session });
-      return { item: doc, created: true };
-    } catch (err) {
-      if (!isDuplicateKeyError(err)) throw err;
-      return { item: doc, created: false };
-    }
-  };
-
   const expire: LaneServices["inbox"]["expire"] = async (db, input) => {
     calls.expire += 1;
-    const col = collections(db);
-    const filter = {
-      status: "open" as const,
-      ...(input.challenge_id ? { challenge_id: input.challenge_id } : {}),
-      ...(input.item_ids ? { _id: { $in: input.item_ids } } : {}),
-    };
-    const items: InboxItem[] = await col.inbox.find(filter).toArray();
-    await col.inbox.updateMany(filter, { $set: { status: "expired", updated_at: input.now } });
-    return { expired: items };
+    return inboxService.expire(db, input);
   };
 
   provideServices({
@@ -112,7 +80,7 @@ export function upstreamDoubles(calls: DoubleCalls = { rollback: 0, decide: 0, e
     contracts: contractsService,
     lifecycle: { rollback },
     approvals: { decide },
-    inbox: { add, expire },
+    inbox: { ...inboxService, expire },
   });
   return calls;
 }

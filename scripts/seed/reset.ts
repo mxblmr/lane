@@ -1,4 +1,5 @@
 import { appendLedgerEntry } from "@lane/core/ledger";
+import { updateSettings } from "@lane/core/config";
 import { services, type LaneServices, type ResetStageInput, type ResetStageResult } from "@lane/core/interfaces";
 import { collections } from "@lane/core/schema/collections";
 import { fail, newId, type ChallengeType } from "@lane/core/schema/common";
@@ -17,6 +18,8 @@ import { createStageChallenge, nextGeneration, stageChallengeId, type Db } from 
  *   3. Roll the type's rules back to their seed versions through the U9 lifecycle.
  *   4. Remove the type's non-seed examples.
  *   5. Create a fresh stage challenge on a demo clock starting now, with the scripted players joined.
+ * Before step 1 it writes `surprise_checks_enabled: false` to `settings` (unless the caller asks
+ * for them, for an AE4 scenario), because demo days last minutes.
  * Every step is idempotent, so a failed reset can simply be run again. Earlier ledger entries stay
  * untouched.
  */
@@ -96,13 +99,23 @@ async function rollbackToSeed(db: Db, type: ChallengeType, by: string, now: Date
   return rolled;
 }
 
-export async function resetStageDetailed(db: Db, input: ResetStageInput): Promise<ResetStageDetailedResult> {
+export interface StageResetInput extends ResetStageInput {
+  /**
+   * Surprise checks stay off on stage unless a scenario tests AE4: on demo days of a few minutes,
+   * scripted players would get up to 3 a day and an unanswered one voids the day (KTD13).
+   */
+  surprise_checks_enabled?: boolean;
+}
+
+export async function resetStageDetailed(db: Db, input: StageResetInput): Promise<ResetStageDetailedResult> {
   const now = input.now ?? new Date();
   const type = input.challenge_type;
   const resetId = `reset_${newId("event").slice(4)}`;
   const col = collections(db);
-  let step = "cancel the previous stage challenge";
+  let step = "turn surprise checks off for the stage";
   try {
+    await updateSettings(db, { surprise_checks_enabled: input.surprise_checks_enabled ?? false }, now);
+    step = "cancel the previous stage challenge";
     // The new generation is fixed first, so two resets that start together create the same one.
     const generation = await nextGeneration(db, type);
     const newId_ = stageChallengeId(type, generation);

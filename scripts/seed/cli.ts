@@ -4,6 +4,9 @@
  *   pnpm exec tsx scripts/seed/cli.ts seed [--types ship_week,customers,build_in_public]
  *   pnpm exec tsx scripts/seed/cli.ts reset --type ship_week
  *
+ * Both write `surprise_checks_enabled: false` to `settings`, because demo days last minutes; pass
+ * --surprise-checks to keep them on for an AE4 run.
+ *
  * `seed` upserts Gary, Priya and Sam with verified handles and their starting grant, then makes
  * sure each type has one live stage challenge on a demo clock. It needs MONGODB_URI and, per
  * player, <NAME>_LANE_KEY plus the handle variables the chosen types need (GitHub logins for Ship
@@ -22,8 +25,8 @@ import { stageHandlePlatform } from "./stage";
 import { wireServices } from "./wire";
 
 export type CliCommand =
-  | { command: "seed"; types: ChallengeType[] }
-  | { command: "reset"; type: ChallengeType };
+  | { command: "seed"; types: ChallengeType[]; surprise_checks: boolean }
+  | { command: "reset"; type: ChallengeType; surprise_checks: boolean };
 
 function parseType(value: string): ChallengeType {
   if (!(CHALLENGE_TYPES as readonly string[]).includes(value)) {
@@ -43,15 +46,17 @@ export function parseCliArgs(argv: string[]): CliCommand {
     }
     return undefined;
   };
+  // Surprise checks stay off on stage unless an AE4 scenario asks for them.
+  const surpriseChecks = rest.includes("--surprise-checks");
   if (command === "seed") {
     const raw = flag("--types");
     const types = raw ? raw.split(",").map((t) => parseType(t.trim())) : [...CHALLENGE_TYPES];
-    return { command: "seed", types };
+    return { command: "seed", types, surprise_checks: surpriseChecks };
   }
   if (command === "reset") {
     const raw = flag("--type");
     if (!raw) throw new Error("Usage: reset --type ship_week");
-    return { command: "reset", type: parseType(raw) };
+    return { command: "reset", type: parseType(raw), surprise_checks: surpriseChecks };
   }
   throw new Error("Usage: cli.ts seed [--types a,b] | cli.ts reset --type <type>");
 }
@@ -68,18 +73,23 @@ export function platformsFor(types: readonly ChallengeType[]): HandlePlatform[] 
 
 async function main(argv: string[], env: Env): Promise<number> {
   const cmd = parseCliArgs(argv);
+  // Check the player variables before touching the database, so one error names every gap.
+  const players = cmd.command === "seed" ? seedPlayerInputs(env, platformsFor(cmd.types)) : [];
   const wired = await wireServices();
   if (wired.missing.length > 0) console.log(`Not merged yet (stubs stay): ${wired.missing.join(", ")}`);
   const db = await laneDb();
   try {
     if (cmd.command === "seed") {
-      const players = seedPlayerInputs(env, platformsFor(cmd.types));
-      const result = await seed(db, { players, types: cmd.types });
+      const result = await seed(db, { players, types: cmd.types, surprise_checks_enabled: cmd.surprise_checks });
       for (const p of result.players) console.log(`player ${p.name}: ${p.created ? "created" : "already seeded"} (${p.player_id})`);
       for (const s of result.stage) console.log(`stage ${s.type}: ${s.created ? "created" : "already live"} (${s.challenge_id})`);
       return 0;
     }
-    const result = await resetStageDetailed(db, { challenge_type: cmd.type, by: "seed-cli" });
+    const result = await resetStageDetailed(db, {
+      challenge_type: cmd.type,
+      by: "seed-cli",
+      surprise_checks_enabled: cmd.surprise_checks,
+    });
     if (!result.ok) {
       console.error(`Reset failed: ${result.error.message} ${result.error.recovery}`);
       return 1;
