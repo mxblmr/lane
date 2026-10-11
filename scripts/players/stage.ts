@@ -14,7 +14,7 @@
  */
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
-import { readStagePlayer, MissingEnvError, type Env, type ScriptedPlayerName } from "../seed/roster";
+import { readLaneKey, readPlayerGithub, readStagePlayer, MissingEnvError, type Env, type ScriptedPlayerName } from "../seed/roster";
 import { GitHubPlayer } from "./github";
 import { findChallenge, LaneClient } from "./lane-client";
 import { runScenario, type PlayerHandles, type RunResult, type StageContext, type StageIO } from "./runner";
@@ -90,12 +90,25 @@ export async function runStage(opts: StageOptions, deps: StageDeps): Promise<Sta
   const player = (name: ScriptedPlayerName): PlayerHandles => {
     let h = handles.get(name);
     if (!h) {
-      const { laneKey, github } = readStagePlayer(deps.env, name);
-      h = {
-        name,
-        lane: new LaneClient(name, opts.url, laneKey),
-        github: new GitHubPlayer({ ...github, fetch: deps.githubFetch, api: deps.githubApi }),
-      };
+      if (scenario.needs_github === false) {
+        // Talk to Customers needs no GitHub: only the Lane key is required, and any GitHub use fails clearly.
+        const lane = new LaneClient(name, opts.url, readLaneKey(deps.env, name));
+        h = {
+          name,
+          lane,
+          get github(): GitHubPlayer {
+            const github = readPlayerGithub(deps.env, name);
+            return new GitHubPlayer({ ...github, fetch: deps.githubFetch, api: deps.githubApi });
+          },
+        };
+      } else {
+        const { laneKey, github } = readStagePlayer(deps.env, name);
+        h = {
+          name,
+          lane: new LaneClient(name, opts.url, laneKey),
+          github: new GitHubPlayer({ ...github, fetch: deps.githubFetch, api: deps.githubApi }),
+        };
+      }
       handles.set(name, h);
     }
     return h;
@@ -123,8 +136,9 @@ export async function runStage(opts: StageOptions, deps: StageDeps): Promise<Sta
       };
       const result = await runScenario(scenario, ctx, { auto: opts.auto });
       results.push(result);
-      const sw = ctx.state.shipWeek as { challenge_id?: string } | undefined;
-      if (sw?.challenge_id) challengeIds.push(sw.challenge_id);
+      const key = scenario.challenge_type === "ship_week" ? "shipWeek" : scenario.challenge_type;
+      const played = ctx.state[key] as { challenge_id?: string } | undefined;
+      if (played?.challenge_id) challengeIds.push(played.challenge_id);
       if (!result.ok) break;
     }
   } finally {
