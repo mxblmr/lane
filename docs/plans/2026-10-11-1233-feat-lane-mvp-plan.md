@@ -306,6 +306,7 @@ flowchart TB
 - KTD21. **Handles are bound at join and verified before their proofs count.** The accepting call of `lane_join_challenge` takes the handle the pack needs: GitHub for Ship Week, the platform handle for Build in Public, none for Talk to Customers. Lane issues a bind code as a player-kind inbox action for the player to put in their profile bio, and Lane verifies it by fetching the platform's public profile. A bind code in a commit message never verifies a GitHub handle, because anyone can author commits under another person's email. Commit-message codes stay for R17 extra-proof requests from bound players. Proofs from an unverified handle are held until the bio check verifies the handle. A verified handle is unique per platform. Scripted players are seeded as verified.
 - KTD22. **Every rehearsal and the stage run start from a reset.** Reset first cancels the previous stage challenge of that type: it refunds every stake through the ledger function as new entries, expires its open inbox items, and moves it to a terminal `cancelled` status that the tick, settlement and check-in skip. It then rolls the type's rules back to their seed versions through the U9 lifecycle, removes that type's non-seed examples, declines open rule approvals, cancels suspended promoter executions, and creates a fresh stage challenge on a demo clock starting now with the scripted players joined. Earlier ledger entries stay untouched, and Sam's runner pushes new commits on every run.
 - KTD23. **Operator switches and tunable numbers live in one `settings` document with defaults in code.** It holds the KTD9 thresholds, the KTD12 starting credits and payout limit, a dispute cap of 3 per disputer per challenge per day, and switches for learning paused, registration open and surprise checks enabled. Every run reads it fresh, and the operator controls write it.
+- KTD24. **Raindrop observes agent calls and rule decisions and never decides anything.** A fetch wrapper in core posts to Raindrop's HTTP ingest API (`https://api.raindrop.ai/v1/events/track` and `/v1/signals/track`) with the write key as a bearer token, array bodies, a 2-second timeout and no project header, so events land in the default project. It does nothing when the key is unset, and a failure is logged and ignored, never thrown into a verdict, job or approval. Lane does not use the `raindrop-ai` SDK, which flushes only on `close()` and adds heavy tracing dependencies. Payloads are the quoted, capped data the agent already received, and Talk to Customers events carry pack features only (KTD15). The key is set only on Vercel production, because the free plan stops ingesting for the month after 1,000 events. Reading Raindrop findings back as a learning source is deferred.
 
 ### High-Level Technical Design
 
@@ -489,6 +490,7 @@ Unique indexes, created at startup by U3:
 │   ├── packs/                         registry plus ship-week/, customers/, build-in-public/
 │   ├── settlement/                    scoring, payouts
 │   ├── agents/                        Agent Engine client
+│   ├── observe/                       Raindrop fetch wrapper (U20)
 │   └── tools/                         tool handlers and envelope builder
 ├── agents/                            Agent Engine project, outside the pnpm workspace
 │   ├── project-config.yaml
@@ -503,11 +505,11 @@ Unique indexes, created at startup by U3:
 - **Wave 0 (by 1:45 PM):** U1, plus the human setup list. U1 deploys the ping stubs before wiring MongoDB, so U2 is not blocked by Atlas.
 - **Wave 1 (by 2:15 PM):** U2 (Max with his Muse), U3, U8 (needs only U1 and the Agent Engine login, because schemas travel in the invoke payload).
 - **Wave 2 (2:15 to 3:30 PM):** the AE1 critical path first, reviewed and merged before anything else: U4, U5, U6, U7, U9, U10, U12 (stage screen with the approve control and proof feed), U14, U18's AE1 slice, then U13's Sam scenario and reset. U10 starts against U9's internal API contract.
-- **Follow-on issues (review after AE1 passes once on the deployed site):** U11, U15, U16, U18's disputes, ask, surprise-check drawing and settlement hand-off, U19 if U2 needs it, the rest of U12, U13's Gary and Priya scenarios, U17.
+- **Follow-on issues (review after AE1 passes once on the deployed site):** U11, U15, U16, U18's disputes, ask, surprise-check drawing and settlement hand-off, U19 if U2 needs it, the rest of U12, U13's Gary and Priya scenarios, U17, and U20's hook lines first in that queue. U20's wrapper and its tests can start once U3 merges.
 - **Wave 3 (3:30 to 4:30 PM):** integration on the deployed site, then follow-on merges.
 - **Wave 4 (4:30 to 5:00 PM):** merges freeze. Two rehearsals, each starting from a reset (KTD22), on a pinned production deployment, with Vercel's instant rollback to the last good deployment as the fallback.
-- **Tracks:** Max takes U1, U2, U3, U6, U7, U13, U14, U17, U18 and U19. Antoine takes U4, U5, U8, U9, U10, U11, U12, U15 and U16.
-- **Shared files:** U1 installs every known dependency, declares every root script the Verification Contract names, and lists every environment variable the plan uses in `.env.example`. Core uses subpath exports, so no unit edits a shared barrel. Units that add a dependency touch only their own package's manifest, and lockfile conflicts are resolved by regenerating the lockfile. U3 creates the pack registry and three stub packs, and each pack unit replaces only its own folder.
+- **Tracks:** Max takes U1, U2, U3, U6, U7, U13, U14, U17, U18 and U19. Antoine takes U4, U5, U8, U9, U10, U11, U12, U15, U16 and U20.
+- **Shared files:** U1 installs every known dependency, declares every root script the Verification Contract names, and lists every environment variable the plan uses in `.env.example`, including `RAINDROP_WRITE_KEY`, which is set on Vercel production only (KTD24). Core uses subpath exports, so no unit edits a shared barrel. Units that add a dependency touch only their own package's manifest, and lockfile conflicts are resolved by regenerating the lockfile. U3 creates the pack registry and three stub packs, and each pack unit replaces only its own folder.
 
 ### System-Wide Impact
 
@@ -525,6 +527,7 @@ Unique indexes, created at startup by U3:
 - **Agent egress to Lane is blocked.** The U8 probe tests it. If egress is refused, Lane switches to no-egress mode: the core runs the gate between two rule-lab invocations, the promoter returns its decision and candidate id as its result, and the red team returns its examples as its result. The core applies them through U9, and activation still requires the approved record.
 - **Post re-fetch fails for X or LinkedIn.** KTD14 covers it, and KTD19 lets Build in Public drop.
 - **Vercel Deployment Protection blocks Meta's servers or Agent Engine.** U1 turns protection off for the production alias. `/api/internal` checks role keys and `/api/ops` checks the passcode.
+- **Raindrop's free plan stops ingesting after 1,000 events a month.** The key is set only on Vercel production, and only agent calls, rule verdicts and signals are sent. A Raindrop outage changes nothing in Lane (KTD24).
 - **Human setup, done by Max or Antoine and never by an agent:**
   - Atlas project with a Flex cluster, a database user and network access open to Vercel.
   - Agent Engine project, `agentengine auth login`, the service account with the Project Owner role that resume requires, an egress entry for Lane's production host, and the org-level cap for the KTD9 pitch.
@@ -533,6 +536,7 @@ Unique indexes, created at startup by U3:
   - Public GitHub sandbox repositories, one GitHub login and write token per scripted player, and a read token for the verifier.
   - Docker Desktop and a tunnel tool on one laptop for the Agent Engine fallback.
   - Muse signed in on a phone.
+  - Raindrop account (free Hobby plan, no card) created in the app.raindrop.ai web page, not with the curl installer. Add the write key to Vercel production as `RAINDROP_WRITE_KEY` only. After the first AE1 run, save a Raindrop Events view filtered to Ship Week for the stage.
   - Keys go into the team's secret store and the platform environment settings, never into the repo.
 
 ### Open Questions
@@ -546,6 +550,7 @@ Unique indexes, created at startup by U3:
 - Whether declining a payout approval should refund every stake, as KTD12 defaults, or leave the challenge open for the operator. Max and Antoine can change the default.
 - Whether a top-score challenge where every score is zero should refund every stake, as KTD12 defaults, or carry the pot. Max and Antoine can change the default.
 - Whether Agent Engine accepts an output schema in the invoke payload for structured output, or each graph validates against the schema itself, recorded at U8's first deploy. Either way the core validates every agent response against U3's schemas.
+- What the Raindrop RSI Prize ($3,000, recursive self-improvement) requires. Ask the Raindrop judge or the organizers.
 
 ### Sources & Research
 
@@ -557,6 +562,8 @@ Unique indexes, created at startup by U3:
 - Next.js `after()` and Vercel function duration: https://vercel.com/docs/functions/configuring-functions/duration
 - GitHub commits and events APIs: https://docs.github.com/en/rest/commits/commits and https://docs.github.com/en/rest/activity/events
 - Muse connector reports, unverified: https://parallel.ai/articles/meta-muse-custom-integrations and https://www.meta.com/help/artificial-intelligence/1385290430137537/
+- Raindrop HTTP ingest, signals and plans: https://raindrop.ai/docs/sdk/http-api.md, https://raindrop.ai/docs/platform/signals.md and https://raindrop.ai/docs/platform/plans.md
+- Raindrop RSI Prize listing: https://partiful.com/e/SLKAGzRbpQ3d3TGM8pAU
 
 ---
 
@@ -583,6 +590,7 @@ Unique indexes, created at startup by U3:
 | U17 | End-to-end checks, Muse stand-in and demo runbook | `scripts/e2e/`, `scripts/standin/`, `docs/demo-runbook.md` | all |
 | U18 | Inbox, check-in, tick, disputes and ask | `packages/core/src/{inbox,checkin,tick,disputes,ask,feed}.ts`, `apps/web/app/api/tick/` | U3, U6, U8 |
 | U19 | JSON mirror and OpenAPI for the eight tools | `apps/web/app/api/v1/` | U7 |
+| U20 | Raindrop agent observability | `packages/core/src/observe/`, one call each in `agents/client.ts`, `proofs/pipeline.ts`, `rules/lifecycle.ts`, `rules/learning.ts` | U3; hooks after U5, U8, U9 |
 
 ### U1. Monorepo scaffold, deploy and connector stubs
 
@@ -1176,6 +1184,34 @@ Unique indexes, created at startup by U3:
 
 **Verification:** Muse, or the stand-in if Muse is unavailable, completes a check-in through the JSON route on the deployed site.
 
+### U20. Raindrop agent observability
+
+**Goal:** Judges can open Raindrop and see the AE1 loop as agent events: the AI referee rejects junk, rule-lab and the promoter produce a rule, the rule goes live, and later proofs are decided by the rule with no AI call.
+
+**Requirements:** Supports AE1 and the Statement One pitch; KTD24.
+
+**Dependencies:** U3 for the wrapper. The hook lines wait for U5, U8 and U9, and merge after AE1 passes once on the deployed site.
+
+**Files:**
+- `packages/core/src/observe/raindrop.ts` (`trackEvent`, `trackSignal`) with a subpath export in `packages/core/package.json`
+- One call each in `packages/core/src/agents/client.ts`, `packages/core/src/proofs/pipeline.ts`, `packages/core/src/rules/lifecycle.ts` and `packages/core/src/rules/learning.ts`
+- `packages/core/test/observe/raindrop.test.ts`
+
+**Approach:**
+1. Build the wrapper per KTD24. Events send `[{ event_id, user_id, event, properties, ai_data: { model, input, output, convo_id } }]` to `/v1/events/track`. Signals send `[{ event_id, signal_name, sentiment, signal_type: "default", properties }]` to `/v1/signals/track`.
+2. The agent client records one event per invoke and resume: `referee.verdict`, `orchestrator.<mode>`, `rule_lab.run` and `promoter.decision`. `event_id` is Lane's verdict, job or execution id, `user_id` is the player id or `lane-system`, and `convo_id` is the challenge id. Properties: challenge_type, proof_id, verdict_id, decided_by, cheat_class, rule key and version pairs, ai_call_count, latency_ms and schema_valid.
+3. The proof pipeline records a `rule.verdict` event without `ai_data` when an active rule decides with zero AI calls.
+4. The lifecycle sends `rule_activated` (POSITIVE) on the rule-lab run's event id, and the live-cheat entry in learning sends `live_cheat_missed` (NEGATIVE). If U18's disputes have merged, add the same one-line call in `disputes.ts` for `verdict_disputed` (NEGATIVE).
+5. Send from the job path, or await with the 2-second timeout. Never send on check-in, ping or dashboard-poll paths.
+
+**Test scenarios:**
+- With fetch mocked, a referee invoke through the agent client posts one array body to `https://api.raindrop.ai/v1/events/track` with the bearer write key and `event_id` equal to the verdict id.
+- When fetch rejects or times out, the verdict is still written and nothing throws.
+- With `RAINDROP_WRITE_KEY` unset, no request is made.
+- Tests never reach the network.
+
+**Verification:** After one `players:stage` run on the deployed site, the Raindrop Events view shows `referee.verdict` (reject, rename_only), `rule_lab.run`, `promoter.decision`, the `rule_activated` signal and a `rule.verdict` with ai_call_count 0.
+
 ---
 
 ## Verification Contract
@@ -1191,6 +1227,7 @@ Unique indexes, created at startup by U3:
 | End to end | `pnpm e2e --url <deployed url>` passes F1 to F6 and AE2 to AE8 for the challenges still in scope | U17 | no |
 | Stand-in | `pnpm standin --url <deployed url>` completes AE7 and AE8 per challenge in scope | U17 | no |
 | Real Muse | A real Muse joins and submits a real commit on the deployed site, or U2's fallback is in the runbook | U2, U17 | yes |
+| Raindrop | After a `players:stage` run, the Raindrop Events view shows `referee.verdict`, `rule_lab.run`, `promoter.decision`, the `rule_activated` signal and a `rule.verdict` with ai_call_count 0 | U20 | no |
 
 After parallel units merge, run typecheck, tests and build on main before reporting success. Gates for a pack dropped under KTD19 are waived.
 
@@ -1203,8 +1240,9 @@ After parallel units merge, run typecheck, tests and build on main before report
 - `players:stage` completes AE1 twice in a row on the deployed URL with a reset between runs, in under two minutes from the junk commit to the rule-caught commit.
 - The dashboard shows the seed and learned Ship Week rule versions with catch rate rising and false alarms within the KTD9 thresholds.
 - A real Muse has joined and submitted real proof, or U2's documented fallback is in the runbook.
-- No secret is in the repository, and code from abandoned approaches is removed from the diff.
+- No secret is in the repository, including the Raindrop write key, and code from abandoned approaches is removed from the diff.
 
 **Best effort**
 
 - End to end F1 to F6 and AE2 to AE8, the stand-in beyond Ship Week, settlement from the dashboard, and the Talk to Customers and Build in Public loops.
+- Raindrop shows the AE1 learning sequence from a rehearsal on the deployed site.
