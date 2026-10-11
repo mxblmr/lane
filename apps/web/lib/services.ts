@@ -4,6 +4,9 @@ import { contractsService } from "@lane/core/contracts";
 import { provideServices, type ServiceName } from "@lane/core/interfaces";
 import { playersService } from "@lane/core/players";
 import { stageService } from "@lane/scripts/seed/reset";
+import { createProofService } from "@lane/core/proofs/pipeline";
+import { engineService } from "@lane/core/rules/engine";
+import { after } from "next/server";
 
 /**
  * The web app's composition root (U3 interfaces, U7 wiring). Routes call `wireServices()` once at
@@ -30,11 +33,11 @@ export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   tick: "real",
   disputes: "real",
   ask: "real",
-  proofs: "stub",
+  proofs: "real",
   approvals: "stub",
   learning: "stub",
   lifecycle: "stub",
-  engine: "stub",
+  engine: "real",
   agents: "stub",
   settlement: "stub",
   stage: "real",
@@ -56,5 +59,7 @@ export function wireServices(): void {
   provideU18Services();
   // U13: the KTD22 stage reset behind U12's reset control.
   provideServices({ stage: stageService });
-  // U5 (proofs) is added here when it merges.
+  // U4: the rule engine. U5: the proof pipeline; a referee reply that misses the request window
+  // finishes in Next's `after()` so the verdict still lands.
+  provideServices({ engine: engineService, proofs: createProofService({ runAfter: after }) });
 }
