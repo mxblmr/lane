@@ -4,6 +4,7 @@ import { contractsService } from "@lane/core/contracts";
 import { provideServices, type ServiceName } from "@lane/core/interfaces";
 import { playersService } from "@lane/core/players";
 import { stageService } from "@lane/scripts/seed/reset";
+import { settlementService } from "@lane/core/settlement/payout";
 import { approvalsService } from "@lane/core/rules/approvals";
 import { learningJobHandlers, learningService } from "@lane/core/rules/learning";
 import { lifecycleService } from "@lane/core/rules/lifecycle";
@@ -44,7 +45,7 @@ export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   lifecycle: "real",
   engine: "real",
   agents: "real",
-  settlement: "stub",
+  settlement: "real",
   stage: "real",
 };
 
@@ -67,6 +68,8 @@ export function wireServices(): void {
   // U4: the rule engine. U5: the proof pipeline; a referee reply that misses the request window
   // finishes in Next's `after()` so the verdict still lands.
   provideServices({ engine: engineService, proofs: createProofService({ runAfter: after }) });
+  // U11: scoring, settlement and payouts, run by U18's settlement job handler.
+  provideServices({ settlement: settlementService });
   // U9: approvals, the learning chain and the rule lifecycle, plus the learning job handlers the
   // tick runs.
   provideServices({ approvals: approvalsService, learning: learningService, lifecycle: lifecycleService });
