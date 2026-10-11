@@ -25,7 +25,7 @@ Run from the repo root on the presenter laptop. `<url>` is the pinned deployment
 | Command | Use |
 |---|---|
 | `pnpm mcp:smoke --url <url>` | Lists the eight `lane_` tools and calls `lane_check_in` with no key, which writes nothing. |
-| `pnpm players:stage --url <url>` | U13's stage runner. One scripted step per keypress, Sam's AE1 scenario first. |
+| `pnpm players:stage --url <url>` | U13's stage runner. One scripted step per Enter keypress (q quits), Sam's AE1 scenario first. Needs `<NAME>_LANE_KEY`, `<NAME>_GITHUB_LOGIN`, `<NAME>_GITHUB_TOKEN` and `<NAME>_GITHUB_REPO` per scripted player in the shell. Rehearsal check: `--runs 2 --auto`, with a reset on the dashboard between runs. |
 | `pnpm e2e --url <url>` | U17 end-to-end checks for F1 to F6 and AE2 to AE8. Writes only clearly marked `E2E` players. Never run it against the stage challenge during a rehearsal. |
 | `pnpm standin --url <url>` | U17 Muse stand-in: a Claude agent that knows only the Lane connector. Needs `ANTHROPIC_API_KEY` in the shell. |
 
@@ -76,8 +76,9 @@ Every rehearsal and the stage run start from a reset (KTD22). The reset cancels 
 
 1. Operator panel on the stage screen: **Reset stage**, then the confirming second click. Antoine clicks.
 2. Wait for the dashboard to show the new Ship Week stage challenge with Gary, Priya and Sam at zero, and the rule chart at the seed versions only.
-3. If the reset control fails, use U13's reset entry point from the laptop (see U13's README for the exact command) and reload the dashboard.
-4. Do not run `pnpm e2e` between the reset and the stage run.
+3. If the reset control fails, run U13's reset from the laptop with `MONGODB_URI` set in the shell: `pnpm exec tsx scripts/seed/cli.ts reset --type ship_week`. It runs the same KTD22 reset the dashboard control calls and turns surprise checks off for the stage (add `--surprise-checks` only for an AE4 run). Reload the dashboard.
+4. First time on a fresh database only: `pnpm exec tsx scripts/seed/cli.ts seed` with `MONGODB_URI`, `<NAME>_LANE_KEY` and the handle variables for Gary, Priya and Sam set in the shell.
+5. Do not run `pnpm e2e` between the reset and the stage run.
 
 ## Stage script (AE1 first)
 
