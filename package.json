@@ -12,7 +12,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "mcp:smoke": "tsx scripts/mcp-smoke.ts",
-    "players:stage": "node -e \"console.error('players:stage is a placeholder until U13 lands'); process.exit(1)\"",
+    "players:stage": "tsx scripts/players/stage.ts",
     "e2e": "node -e \"console.error('e2e is a placeholder until U17 lands'); process.exit(1)\"",
     "standin": "node -e \"console.error('standin is a placeholder until U17 lands'); process.exit(1)\""
   },

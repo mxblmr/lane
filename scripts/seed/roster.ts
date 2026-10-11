@@ -116,6 +116,16 @@ export interface PlayerGithubEnv {
   repo: string;
 }
 
+/** Everything the stage runner needs for one player, checked together so one error names every gap. */
+export function readStagePlayer(env: Env, name: ScriptedPlayerName): { laneKey: string; github: PlayerGithubEnv } {
+  requireEnv(
+    env,
+    ["LANE_KEY", "GITHUB_LOGIN", "GITHUB_TOKEN", "GITHUB_REPO"].map((s) => envName(name, s)),
+    `${name} on stage`,
+  );
+  return { laneKey: readLaneKey(env, name), github: readPlayerGithub(env, name) };
+}
+
 export function readPlayerGithub(env: Env, name: ScriptedPlayerName): PlayerGithubEnv {
   const names = [envName(name, "GITHUB_LOGIN"), envName(name, "GITHUB_TOKEN"), envName(name, "GITHUB_REPO")];
   const v = requireEnv(env, names, `${name}'s GitHub pushes`);
