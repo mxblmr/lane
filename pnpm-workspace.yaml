@@ -5,6 +5,9 @@ packages:
 
 onlyBuiltDependencies:
   - esbuild
-  - mongodb-memory-server
   - sharp
-  - unrs-resolver
+
+# mongodb-memory-server downloads a ~77 MB MongoDB binary in postinstall. Skip it
+# so Vercel installs stay fast; the first local test run downloads it on demand.
+ignoredBuiltDependencies:
+  - mongodb-memory-server
