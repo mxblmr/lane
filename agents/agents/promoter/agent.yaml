@@ -8,7 +8,9 @@ entrypoint: promoter_agent.main:app
 framework: langgraph
 language: typescript
 features:
-  durable_workflow: true
+  # Use MongoDB-backed LangGraph checkpoints for human review. SDK 0.11.8
+  # durable replay fails to reconstruct this graph's direct interrupt frontier.
+  durable_workflow: false
   memory: false
 scaling:
   replicas: 16
