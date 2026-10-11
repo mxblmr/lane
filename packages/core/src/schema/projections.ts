@@ -151,7 +151,7 @@ export interface PublicProof {
   challenge_id: string;
   player_id: string;
   challenge_type: ChallengeType;
-  day_index: number;
+  day_index: number | null;
   status: Proof["status"];
   held_reason: Proof["held_reason"];
   not_counted_reason: Proof["not_counted_reason"];

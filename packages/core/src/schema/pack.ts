@@ -41,6 +41,8 @@ export interface RecheckSource {
   author: string | null;
   /** Files touched and line counts, when the source says (Ship Week). */
   stats: { files: number; additions: number; deletions: number } | null;
+  /** When the source was created (commit author date, post time), if the source says. */
+  created_at: Date | null;
   fetched_at: Date;
 }
 
@@ -130,10 +132,16 @@ export interface Pack<P extends Record<string, unknown> = Record<string, unknown
   proofSchema: z.ZodType<P>;
   /** Canonical source key: full 40-char lowercase SHA, `platform:post_id`, or calendar event id. */
   sourceKey(proof: P): string;
-  /** Source time, which sets the proof's day index (KTD13). */
-  sourceTime(proof: P): Date;
-  /** Handle the pack binds at join, or null (Talk to Customers). */
-  handlePlatform: HandlePlatform | null;
+  /**
+   * Source time, which sets the proof's day index (KTD13). It may come from the proof itself or
+   * from the re-check (for example the commit date GitHub returns); null when unknown yet.
+   */
+  sourceTime(proof: P, recheck: RecheckResult | null): Date | null;
+  /**
+   * Handle the pack binds at join (KTD21): GitHub for Ship Week, the challenge's platform for
+   * Build in Public, null for Talk to Customers.
+   */
+  handlePlatform(challenge: Pick<Challenge, "params">): HandlePlatform | null;
   features: FeatureCatalog;
   extractFeatures(input: FeatureInput<P>): Features;
   /** Re-check public sources where they exist (R16, KTD14). */
@@ -154,3 +162,12 @@ export interface Pack<P extends Record<string, unknown> = Record<string, unknown
 
 /** Any registered pack. Pack methods are bivariant, so concrete packs are assignable. */
 export type AnyPack = Pack<Record<string, unknown>>;
+
+/**
+ * KTD15: render a condition's value for a "does not count" line. Numbers and booleans are
+ * shown; strings and lists become a generic phrase, never the rule-writer's literal.
+ */
+export function genericValue(cond: Cond): string {
+  if (typeof cond.value === "number" || typeof cond.value === "boolean") return String(cond.value);
+  return Array.isArray(cond.value) ? "one of a set of listed values" : "a listed phrase";
+}

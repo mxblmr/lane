@@ -146,6 +146,8 @@ export const SubmitProofArgsSchema = z.object({
   challenge_id: IdSchema.optional(),
   /** Answer an extra-proof request, surprise check or bind code by its action id. */
   request_id: IdSchema.optional(),
+  /** ISO time the source was created, when the agent knows it. Lane re-checks it where it can. */
+  source_time: z.string().max(40).optional(),
   repo: z.string().max(200).optional(),
   sha: z.string().max(64).optional(),
   event_id: z.string().max(200).optional(),

@@ -113,8 +113,10 @@ export const ProofSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
   /** Features from the pack extractor. Never projected for Talk to Customers. */
   features: FeaturesSchema.nullable(),
-  source_time: z.date(),
-  day_index: z.int().min(0),
+  /** Null until known (for example before the re-check returns the commit date). */
+  source_time: z.date().nullable(),
+  /** From the source time on the challenge clock (KTD13). Null until the source time is known. */
+  day_index: z.int().min(0).nullable(),
   status: ProofStatusSchema,
   held_reason: HeldReasonSchema.nullable(),
   not_counted_reason: NotCountedReasonSchema.nullable(),
