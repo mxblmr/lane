@@ -5,6 +5,11 @@ import { provideServices, type ServiceName } from "@lane/core/interfaces";
 import { playersService } from "@lane/core/players";
 import { stageService } from "@lane/scripts/seed/reset";
 import { settlementService } from "@lane/core/settlement/payout";
+import { approvalsService } from "@lane/core/rules/approvals";
+import { learningJobHandlers, learningService } from "@lane/core/rules/learning";
+import { lifecycleService } from "@lane/core/rules/lifecycle";
+import { provideJobHandlers } from "@lane/core/tick";
+import { agentsService } from "@lane/core/agents/service";
 import { createProofService } from "@lane/core/proofs/pipeline";
 import { engineService } from "@lane/core/rules/engine";
 import { after } from "next/server";
@@ -35,11 +40,11 @@ export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   disputes: "real",
   ask: "real",
   proofs: "real",
-  approvals: "stub",
-  learning: "stub",
-  lifecycle: "stub",
+  approvals: "real",
+  learning: "real",
+  lifecycle: "real",
   engine: "real",
-  agents: "stub",
+  agents: "real",
   settlement: "real",
   stage: "real",
 };
@@ -65,4 +70,10 @@ export function wireServices(): void {
   provideServices({ engine: engineService, proofs: createProofService({ runAfter: after }) });
   // U11: scoring, settlement and payouts, run by U18's settlement job handler.
   provideServices({ settlement: settlementService });
+  // U9: approvals, the learning chain and the rule lifecycle, plus the learning job handlers the
+  // tick runs.
+  provideServices({ approvals: approvalsService, learning: learningService, lifecycle: lifecycleService });
+  provideJobHandlers(learningJobHandlers());
+  // U8: the Agent Engine adapter. It reads its configuration on first call, never at build time.
+  provideServices({ agents: agentsService });
 }

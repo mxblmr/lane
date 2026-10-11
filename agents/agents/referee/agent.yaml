@@ -1,0 +1,35 @@
+# Lane referee (U8, KTD10): reviews one proof or dispute when no rule decides it.
+# Based on the official hello-world-agent-ts template (mongodb/agent-engine-examples).
+name: referee
+description: Lane referee. Reviews one proof or one dispute against its contract when no active rule decides it, and answers with a verdict that matches the schema sent in the payload.
+
+# src/referee_agent/main.ts, compiled to dist/referee_agent/main.js, exports `app`.
+entrypoint: referee_agent.main:app
+framework: langgraph
+language: typescript
+
+features:
+  durable_workflow: true
+  memory: false
+
+# 16 replicas so the shared referee session never runs out of sandboxes on stage.
+scaling:
+  replicas: 16
+
+sandboxes:
+  agent:
+    secrets: ["*"]
+    tools: []
+    # The agent sandbox calls the LLM provider selected by the LLM_API_KEY secret.
+    network:
+      egress_mode: allow_list
+      egress:
+        - fqdn: api.openai.com
+          ports: [443]
+        - fqdn: api.anthropic.com
+          ports: [443]
+  tool:
+    secrets: ["*"]
+    tools: []
+    network:
+      egress_mode: deny_all
