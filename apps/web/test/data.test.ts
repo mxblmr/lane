@@ -252,10 +252,10 @@ describe("data routes (KTD15, KTD16)", () => {
     const s = await seedStage();
     const data = (await (await getChallenge(s.customers._id)).json()) as Serialized<ChallengeData>;
     expect(data.feed).toHaveLength(1);
-    expect(data.feed[0]).toMatchObject({ summary: "call, 30 min, 2 attendees" });
+    expect(data.feed[0]).toMatchObject({ summary: "call, 30 min, 2 outside domains" });
     expect(data.feed[0]!.verdict).toMatchObject({ reason: null, fix: null, cheat_class: "personal_email" });
     const entry = data.approvals[0];
-    expect(entry?.kind === "rule" && entry.line).toBe("A proof where an attendee is from one of a set of listed values does not count.");
+    expect(entry?.kind === "rule" && entry.line).toBe("A proof where an attendee's email domain is one of a set of listed values does not count.");
   });
 
   it("takes standings from U11 when wired and says not available yet otherwise", async () => {
