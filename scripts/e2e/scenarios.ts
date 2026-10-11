@@ -202,6 +202,8 @@ interface ShipWeekPair {
   maya: TestPlayer;
   priya: TestPlayer;
   challenge: CreatedChallenge;
+  /** The terms version Priya accepted. */
+  priyaTerms: string;
 }
 
 /** Maya creates a Ship Week challenge, binds her handle, and Priya joins with hers. */
@@ -211,8 +213,8 @@ async function shipWeekWithTwo(ctx: E2EContext): Promise<ShipWeekPair> {
   const bound = await call(ctx, maya, "lane_join_challenge", { join_code: challenge.join_code, handle: maya.handle }, "U6");
   expectOk(bound, "creator handle bind");
   const priya = await registerTestPlayer(ctx, "Priya");
-  await joinChallenge(ctx, priya, challenge.join_code, priya.handle);
-  return { maya, priya, challenge };
+  const { terms } = await joinChallenge(ctx, priya, challenge.join_code, priya.handle);
+  return { maya, priya, challenge, priyaTerms: String(terms.terms_version) };
 }
 
 function randomSha(): string {
@@ -246,7 +248,7 @@ const F1: Scenario = {
   covers: ["R4", "R5", "R6", "R7", "R8", "R10"],
   waitsOn: ["U6", "U8 orchestrator"],
   async run(ctx) {
-    const { maya, priya, challenge } = await shipWeekWithTwo(ctx);
+    const { maya, priya, challenge, priyaTerms } = await shipWeekWithTwo(ctx);
     ctx.note(`challenge ${challenge.challenge_id} created, Priya joined`);
 
     // Repeating a write changes nothing (KTD6).
@@ -266,13 +268,11 @@ const F1: Scenario = {
       ctx,
       priya,
       "lane_join_challenge",
-      { join_code: challenge.join_code, accepted_terms_version: "repeat", handle: priya.handle },
+      { join_code: challenge.join_code, accepted_terms_version: priyaTerms, handle: priya.handle },
       "U6",
     );
-    check(
-      joinAgain.status === "error" || data(joinAgain).already_member === true || data(joinAgain).phase === "terms",
-      "joining twice should not stake twice",
-    );
+    expectOk(joinAgain, "lane_join_challenge (repeat)");
+    check(data(joinAgain).already_member === true, "repeating the accepting join should report already_member, not stake again");
 
     if (ctx.db && before) {
       const after = await counts(ctx.db, challenge.challenge_id);

@@ -29,7 +29,17 @@ Run from the repo root on the presenter laptop. `<url>` is the pinned deployment
 | `pnpm e2e --url <url>` | U17 end-to-end checks for F1 to F6 and AE2 to AE8. Writes only clearly marked `E2E` players. Never run it against the stage challenge during a rehearsal. |
 | `pnpm standin --url <url>` | U17 Muse stand-in: a Claude agent that knows only the Lane connector. Needs `ANTHROPIC_API_KEY` in the shell. |
 
-`pnpm e2e` exit codes: 0 every selected check passed, 1 at least one failed, 2 nothing failed but some checks are blocked on a unit that is not live yet (the report names the unit).
+`pnpm e2e` and `pnpm standin` exit codes: 0 every selected check passed, 1 at least one failed, 2 nothing failed but some checks are blocked on a unit that is not live yet (the report names the unit). Both take `--only`, for example `--only F1,F3` or `--only AE8`.
+
+Environment variable names for these commands (values come from the secret store, never from this file):
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `MONGODB_URI`, `MONGODB_DB` | `pnpm e2e` (optional) | Turns on database assertions. The e2e run only reads through it. |
+| `ANTHROPIC_API_KEY` | `pnpm standin` (required) | The stand-in's model key. |
+| `LANE_STANDIN_MODEL` | `pnpm standin` (optional) | Overrides the stand-in model. Default `claude-opus-5-5`. |
+
+`pnpm e2e` writes only players named `E2E <persona> <run id>` with handles starting `e2e-`, and their own challenges. Lane has no delete tool, so they stay; they are never stage challenges, and the reset leaves them alone. Today `pnpm e2e` reports F4, F6 and AE2 to AE6 as blocked: they need the U12 operator routes (approve, advance day, close window) or packs not merged yet, and AE1 with F4 runs through `pnpm players:stage`.
 
 ## Setup checklist (people only, never an agent)
 
