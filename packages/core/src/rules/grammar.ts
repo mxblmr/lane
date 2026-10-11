@@ -1,52 +1,47 @@
-// Rule grammar validation (U4, KTD8). Checks a candidate rule against its
-// pack's feature catalog and hard bounds before it can be tested, stored or
-// activated. Structure comes from the shared rule schema; this module adds the
-// pack-specific checks: known features, operators that fit the feature type,
-// values of the right type, numbers inside the hard bound, and `matches`
-// values that are short safe literals, never regex.
+// Rule grammar validation (U4, KTD8). Checks a rule against its pack's feature
+// catalog and hard bounds before it can be tested, stored or activated.
+// Structure (operators, actions, value shapes, list and literal lengths, the
+// `matches` literal pattern, condition count) comes from U3's rule schema in
+// `schema/rule.ts`. This module adds the pack-specific checks: the rule is for
+// this pack, every feature is in the pack's catalog, every operator is one the
+// catalog allows for that feature, values have the feature's type, numbers stay
+// inside the feature's hard bound, and `matches` literals contain at least one
+// letter or digit so a blank literal cannot match every proof.
 
 import type { z } from "zod";
+import type { AnyPack, FeatureCatalog, FeatureKind, FeatureSpec } from "../schema/pack";
 import {
-  RuleDefinitionSchema,
-  type FeatureSpec,
-  type FeatureType,
-  type FeatureValue,
-  type PackRuleCatalog,
-  type RuleCondition,
-  type RuleDefinition,
-  type RuleOp,
-} from "./_u3-shim";
+  MATCHES_VALUE_PATTERN,
+  RuleProposalSchema,
+  WhenSchema,
+  whenConds,
+  type Cond,
+  type RuleProposal,
+  type When,
+} from "../schema/rule";
 
-/** Longest `matches` literal, and longest string value for `eq` or `in`. */
-export const MAX_LITERAL_LENGTH = 40;
-/** Most conditions one rule may combine. */
-export const MAX_CONDITIONS = 10;
-/** Most values one `in` list may hold. */
-export const MAX_IN_VALUES = 20;
+/** The parts of a pack the grammar reads. */
+export type GrammarPack = Pick<AnyPack, "type" | "features">;
 
-/** Operators each feature type accepts. */
-export const OPS_BY_FEATURE_TYPE: Readonly<Record<FeatureType, readonly RuleOp[]>> = {
-  boolean: ["eq"],
-  number: ["eq", "lt", "lte", "gt", "gte", "in"],
-  string: ["eq", "in", "matches"],
-};
-
-// Letters, digits, spaces or hyphens only, 1 to 40 characters, with at least
-// one letter or digit so a blank literal cannot match every proof.
-const MATCHES_LITERAL = /^[A-Za-z0-9 -]{1,40}$/;
 const HAS_ALNUM = /[A-Za-z0-9]/;
+
+/** Scalar type each feature kind takes in a condition value. A string_list takes string values. */
+const SCALAR_TYPE_BY_KIND: Readonly<Record<FeatureKind, "boolean" | "number" | "string">> = {
+  boolean: "boolean",
+  number: "number",
+  string: "string",
+  string_list: "string",
+};
 
 export type RuleValidationCode =
   | "invalid_shape"
   | "challenge_type_mismatch"
-  | "too_many_conditions"
   | "unknown_feature"
   | "op_not_allowed"
   | "value_type_mismatch"
   | "out_of_bounds"
   | "invalid_matches_literal"
-  | "invalid_literal"
-  | "invalid_list";
+  | "invalid_literal";
 
 export interface RuleValidationIssue {
   path: string;
@@ -54,157 +49,138 @@ export interface RuleValidationIssue {
   message: string;
 }
 
-export type RuleValidationResult =
-  | { ok: true; rule: RuleDefinition }
-  | { ok: false; issues: RuleValidationIssue[] };
+export type ValidationResult<T> = { ok: true; value: T } | { ok: false; issues: RuleValidationIssue[] };
 
-/** True when `value` is a valid `matches` literal: 1 to 40 letters, digits, spaces or hyphens. */
+/**
+ * True when `value` is a safe `matches` literal: U3's pattern (1 to 40 letters,
+ * digits, spaces or hyphens) plus at least one letter or digit.
+ */
 export function isSafeMatchesLiteral(value: unknown): value is string {
-  return typeof value === "string" && MATCHES_LITERAL.test(value) && HAS_ALNUM.test(value);
+  return typeof value === "string" && MATCHES_VALUE_PATTERN.test(value) && HAS_ALNUM.test(value);
 }
 
 /**
- * Validate a candidate rule against its pack's feature catalog and hard
- * bounds. Returns the parsed rule on success, or every issue found.
+ * Validate a rule-writer's proposal (U3 `RuleProposal`) against its pack's
+ * feature catalog and hard bounds. Returns the parsed proposal on success, or
+ * every issue found.
  */
-export function validateRule(candidate: unknown, catalog: PackRuleCatalog): RuleValidationResult {
-  const parsed = RuleDefinitionSchema.safeParse(candidate);
-  if (!parsed.success) {
-    return { ok: false, issues: parsed.error.issues.map(shapeIssue) };
-  }
+export function validateRule(candidate: unknown, pack: GrammarPack): ValidationResult<RuleProposal> {
+  const parsed = RuleProposalSchema.safeParse(candidate);
+  if (!parsed.success) return { ok: false, issues: parsed.error.issues.map(shapeIssue) };
 
-  const rule = parsed.data;
+  const proposal = parsed.data;
   const issues: RuleValidationIssue[] = [];
-
-  if (rule.challenge_type !== catalog.challenge_type) {
+  if (proposal.challenge_type !== pack.type) {
     issues.push({
       path: "challenge_type",
       code: "challenge_type_mismatch",
-      message: `rule is for "${rule.challenge_type}" but the catalog is for "${catalog.challenge_type}"`,
+      message: `rule is for "${proposal.challenge_type}" but the pack is "${pack.type}"`,
     });
   }
-
-  const [combinator, conditions] = "all" in rule.when ? (["all", rule.when.all] as const) : (["any", rule.when.any] as const);
-
-  if (conditions.length > MAX_CONDITIONS) {
-    issues.push({
-      path: `when.${combinator}`,
-      code: "too_many_conditions",
-      message: `a rule may combine at most ${MAX_CONDITIONS} conditions, got ${conditions.length}`,
-    });
-  }
-
-  conditions.forEach((condition, index) => {
-    issues.push(...validateCondition(condition, catalog, `when.${combinator}.${index}`));
-  });
-
-  return issues.length === 0 ? { ok: true, rule } : { ok: false, issues };
+  issues.push(...checkWhen(proposal.when, pack, "when"));
+  return issues.length === 0 ? { ok: true, value: proposal } : { ok: false, issues };
 }
 
-function validateCondition(condition: RuleCondition, catalog: PackRuleCatalog, path: string): RuleValidationIssue[] {
-  const spec = Object.hasOwn(catalog.features, condition.feature) ? catalog.features[condition.feature] : undefined;
+/**
+ * Validate a predicate alone (for example a pack's seed rule or a stored rule's
+ * `when`) against the pack's feature catalog and hard bounds.
+ */
+export function validateWhen(when: unknown, pack: GrammarPack): ValidationResult<When> {
+  const parsed = WhenSchema.safeParse(when);
+  if (!parsed.success) return { ok: false, issues: parsed.error.issues.map(shapeIssue) };
+  const issues = checkWhen(parsed.data, pack, "");
+  return issues.length === 0 ? { ok: true, value: parsed.data } : { ok: false, issues };
+}
+
+function checkWhen(when: When, pack: GrammarPack, prefix: string): RuleValidationIssue[] {
+  const combinator = "all" in when ? "all" : "any";
+  const base = prefix ? `${prefix}.${combinator}` : combinator;
+  return whenConds(when).flatMap((cond, index) => checkCond(cond, pack, `${base}.${index}`));
+}
+
+function checkCond(cond: Cond, pack: GrammarPack, path: string): RuleValidationIssue[] {
+  const catalog: FeatureCatalog = pack.features;
+  const spec = Object.hasOwn(catalog, cond.feature) ? catalog[cond.feature] : undefined;
   if (!spec) {
     return [
       {
         path: `${path}.feature`,
         code: "unknown_feature",
-        message: `feature "${condition.feature}" is not in the ${catalog.challenge_type} feature catalog`,
+        message: `feature "${cond.feature}" is not in the ${pack.type} feature catalog`,
       },
     ];
   }
 
-  if (!OPS_BY_FEATURE_TYPE[spec.type].includes(condition.op)) {
+  if (!spec.ops.includes(cond.op)) {
     return [
       {
         path: `${path}.op`,
         code: "op_not_allowed",
-        message: `operator "${condition.op}" does not apply to ${spec.type} feature "${condition.feature}"`,
+        message: `operator "${cond.op}" is not allowed on feature "${cond.feature}"`,
       },
     ];
   }
 
   const valuePath = `${path}.value`;
 
-  if (condition.op === "matches") {
-    if (!isSafeMatchesLiteral(condition.value)) {
+  if (cond.op === "matches") {
+    if (SCALAR_TYPE_BY_KIND[spec.kind] !== "string") {
+      return [typeMismatch(valuePath, cond.feature, spec, cond.value)];
+    }
+    if (!isSafeMatchesLiteral(cond.value)) {
       return [
         {
           path: valuePath,
           code: "invalid_matches_literal",
-          message: `a matches value must be 1 to ${MAX_LITERAL_LENGTH} letters, digits, spaces or hyphens`,
+          message: "a matches value must contain at least one letter or digit",
         },
       ];
     }
     return [];
   }
 
-  if (condition.op === "in") {
-    if (!Array.isArray(condition.value) || condition.value.length === 0 || condition.value.length > MAX_IN_VALUES) {
-      return [
-        {
-          path: valuePath,
-          code: "invalid_list",
-          message: `an in value must be a list of 1 to ${MAX_IN_VALUES} values`,
-        },
-      ];
-    }
-    return condition.value.flatMap((item, index) => validateScalar(item, spec, condition.feature, `${valuePath}.${index}`));
+  // U3's schema guarantees `in` carries a non-empty list and every other
+  // operator a single value.
+  if (Array.isArray(cond.value)) {
+    return cond.value.flatMap((item, index) => checkScalar(item, spec, cond.feature, `${valuePath}.${index}`));
   }
-
-  if (Array.isArray(condition.value)) {
-    return [
-      {
-        path: valuePath,
-        code: "value_type_mismatch",
-        message: `operator "${condition.op}" takes a single value, not a list`,
-      },
-    ];
-  }
-
-  return validateScalar(condition.value, spec, condition.feature, valuePath);
+  return checkScalar(cond.value, spec, cond.feature, valuePath);
 }
 
-function validateScalar(value: FeatureValue, spec: FeatureSpec, feature: string, path: string): RuleValidationIssue[] {
-  if (typeof value !== spec.type || (typeof value === "number" && !Number.isFinite(value))) {
-    return [
-      {
-        path,
-        code: "value_type_mismatch",
-        message: `feature "${feature}" takes a ${spec.type} value, got ${JSON.stringify(value)}`,
-      },
-    ];
+function checkScalar(value: unknown, spec: FeatureSpec, feature: string, path: string): RuleValidationIssue[] {
+  const expected = SCALAR_TYPE_BY_KIND[spec.kind];
+  if (typeof value !== expected || (typeof value === "number" && !Number.isFinite(value))) {
+    return [typeMismatch(path, feature, spec, value)];
   }
 
-  if (spec.type === "number" && typeof value === "number") {
-    const { min, max } = spec.bounds;
-    if (value < min || value > max) {
+  if (typeof value === "number" && spec.bound) {
+    const { min, max } = spec.bound;
+    if ((min !== undefined && value < min) || (max !== undefined && value > max)) {
       return [
         {
           path,
           code: "out_of_bounds",
-          message: `feature "${feature}" must stay within its hard bound ${min} to ${max}, got ${value}`,
+          message: `feature "${feature}" must stay within its hard bound ${min ?? "-inf"} to ${max ?? "inf"}, got ${value}`,
         },
       ];
     }
   }
 
-  if (spec.type === "string" && typeof value === "string" && (value.length === 0 || value.length > MAX_LITERAL_LENGTH)) {
-    return [
-      {
-        path,
-        code: "invalid_literal",
-        message: `string values must be 1 to ${MAX_LITERAL_LENGTH} characters`,
-      },
-    ];
+  if (typeof value === "string" && value.length === 0) {
+    return [{ path, code: "invalid_literal", message: "string values must not be empty" }];
   }
 
   return [];
 }
 
-function shapeIssue(issue: z.core.$ZodIssue): RuleValidationIssue {
+function typeMismatch(path: string, feature: string, spec: FeatureSpec, value: unknown): RuleValidationIssue {
   return {
-    path: issue.path.map(String).join("."),
-    code: "invalid_shape",
-    message: issue.message,
+    path,
+    code: "value_type_mismatch",
+    message: `feature "${feature}" is a ${spec.kind} feature and does not take ${JSON.stringify(value)}`,
   };
+}
+
+function shapeIssue(issue: z.core.$ZodIssue): RuleValidationIssue {
+  return { path: issue.path.map(String).join("."), code: "invalid_shape", message: issue.message };
 }

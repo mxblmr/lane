@@ -1,8 +1,17 @@
 import { MongoClient, type CommandStartedEvent, type Db } from "mongodb";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { RULES_ACTIVE_INDEX, RULES_COLLECTION, type RuleDocument } from "../../src/rules/_u3-shim";
-import { evaluateRules, matchesCondition, RuleEngine, type EvaluableRule } from "../../src/rules/engine";
+import {
+  engineService,
+  evaluate,
+  evaluateRules,
+  matchesCondition,
+  verdictForDecision,
+  type EvaluableRule,
+} from "../../src/rules/engine";
+import { provideServices, resetServices, services } from "../../src/interfaces";
+import { collections, COLLECTIONS } from "../../src/schema/collections";
+import { ALL_INDEXES } from "../../src/schema/indexes";
+import { startReplSet, type TestMongo } from "../../src/testing/mongo";
 import { ruleDocument, SHIP_WEEK } from "./fixtures";
 
 const renameOnlyProof = { rename_only: true, whitespace_only: false, docs_only: false, code_lines_changed: 4 };
@@ -14,78 +23,79 @@ function rule(overrides: Partial<EvaluableRule> = {}): EvaluableRule {
 
 describe("evaluateRules", () => {
   it("covers AE1: rejects a rename-only proof with the deciding rule's key and version", () => {
-    const decision = evaluateRules([rule({ rule_key: "ship_week.rename_only", version: 3 })], renameOnlyProof);
+    const result = evaluateRules([rule({ rule_key: "rename_only", version: 3 })], renameOnlyProof);
 
-    expect(decision.outcome).toBe("rejected");
-    expect(decision.decided_by).toEqual({ rule_key: "ship_week.rename_only", version: 3, action: "reject" });
-    expect(decision.payout_hold).toBe(false);
-    expect(decision.evaluated).toEqual([{ rule_key: "ship_week.rename_only", version: 3 }]);
+    expect(result.decision).toBe("reject");
+    expect(result.rule).toEqual({ rule_key: "rename_only", version: 3 });
+    expect(result.matched).toEqual([{ rule_key: "rename_only", version: 3, action: "reject" }]);
+    expect(result.evaluated).toEqual([{ rule_key: "rename_only", version: 3 }]);
+    expect(verdictForDecision(result.decision)).toEqual({ outcome: "reject", payout_hold: false });
   });
 
   it("returns no decision when there are no active rules", () => {
-    expect(evaluateRules([], renameOnlyProof)).toEqual({
-      outcome: "no_decision",
-      decided_by: null,
-      payout_hold: false,
-      matches: [],
-      evaluated: [],
-    });
+    const result = evaluateRules([], renameOnlyProof);
+    expect(result).toEqual({ decision: "none", rule: null, matched: [], evaluated: [] });
+    expect(verdictForDecision(result.decision)).toBeNull();
   });
 
   it("returns no decision but still lists evaluated rules when nothing matches", () => {
-    const decision = evaluateRules([rule()], { ...renameOnlyProof, rename_only: false });
+    const result = evaluateRules([rule()], { ...renameOnlyProof, rename_only: false });
 
-    expect(decision.outcome).toBe("no_decision");
-    expect(decision.decided_by).toBeNull();
-    expect(decision.matches).toEqual([]);
-    expect(decision.evaluated).toEqual([{ rule_key: "ship_week.rename_only", version: 1 }]);
+    expect(result.decision).toBe("none");
+    expect(result.rule).toBeNull();
+    expect(result.matched).toEqual([]);
+    expect(result.evaluated).toEqual([{ rule_key: "rename_only", version: 1 }]);
   });
 
   it("rejects when a flag rule and a reject rule both match, recording both matches", () => {
     const flag = rule({
-      rule_key: "ship_week.small_change",
+      rule_key: "small_change",
       version: 2,
       action: "flag",
       when: { all: [{ feature: "code_lines_changed", op: "lte", value: 5 }] },
     });
-    const reject = rule({ rule_key: "ship_week.rename_only", version: 1, action: "reject" });
+    const reject = rule({ rule_key: "rename_only", version: 1, action: "reject" });
 
     // Flag first in storage order, to prove the engine's own order decides.
-    const decision = evaluateRules([flag, reject], renameOnlyProof);
+    const result = evaluateRules([flag, reject], renameOnlyProof);
 
-    expect(decision.outcome).toBe("rejected");
-    expect(decision.decided_by).toEqual({ rule_key: "ship_week.rename_only", version: 1, action: "reject" });
-    expect(decision.matches).toEqual([
-      { rule_key: "ship_week.rename_only", version: 1, action: "reject" },
-      { rule_key: "ship_week.small_change", version: 2, action: "flag" },
+    expect(result.decision).toBe("reject");
+    expect(result.rule).toEqual({ rule_key: "rename_only", version: 1 });
+    expect(result.matched).toEqual([
+      { rule_key: "rename_only", version: 1, action: "reject" },
+      { rule_key: "small_change", version: 2, action: "flag" },
     ]);
-    expect(decision.evaluated).toEqual([
-      { rule_key: "ship_week.rename_only", version: 1 },
-      { rule_key: "ship_week.small_change", version: 2 },
+    expect(result.evaluated).toEqual([
+      { rule_key: "rename_only", version: 1 },
+      { rule_key: "small_change", version: 2 },
     ]);
   });
 
   it("accepts with a payout hold when a hold_payout rule matches", () => {
-    const decision = evaluateRules([rule({ rule_key: "ship_week.hold_rename", action: "hold_payout" })], renameOnlyProof);
+    const result = evaluateRules([rule({ rule_key: "hold_rename", action: "hold_payout" })], renameOnlyProof);
 
-    expect(decision.outcome).toBe("accepted");
-    expect(decision.payout_hold).toBe(true);
-    expect(decision.decided_by).toEqual({ rule_key: "ship_week.hold_rename", version: 1, action: "hold_payout" });
+    expect(result.decision).toBe("hold_payout");
+    expect(result.rule).toEqual({ rule_key: "hold_rename", version: 1 });
+    expect(verdictForDecision(result.decision)).toEqual({ outcome: "accept", payout_hold: true });
   });
 
-  it("holds the proof when an ask_more rule matches, and flags-and-accepts when only a flag rule matches", () => {
-    expect(evaluateRules([rule({ action: "ask_more" })], renameOnlyProof).outcome).toBe("held");
-    expect(evaluateRules([rule({ action: "flag" })], renameOnlyProof).outcome).toBe("flagged_accept");
+  it("asks for more when an ask_more rule matches, and flags when only a flag rule matches", () => {
+    const ask = evaluateRules([rule({ action: "ask_more" })], renameOnlyProof);
+    const flag = evaluateRules([rule({ action: "flag" })], renameOnlyProof);
+    expect(ask.decision).toBe("ask_more");
+    expect(verdictForDecision(ask.decision)).toEqual({ outcome: "ask_more", payout_hold: false });
+    expect(flag.decision).toBe("flag");
+    expect(verdictForDecision(flag.decision)).toEqual({ outcome: "flag", payout_hold: false });
   });
 
   it("evaluates in the fixed order reject, hold_payout, ask_more, flag", () => {
     const all = [
-      rule({ rule_key: "d.flag", action: "flag" }),
-      rule({ rule_key: "c.ask", action: "ask_more" }),
-      rule({ rule_key: "b.hold", action: "hold_payout" }),
-      rule({ rule_key: "a.reject", action: "reject" }),
+      rule({ rule_key: "a_flag", action: "flag" }),
+      rule({ rule_key: "b_ask", action: "ask_more" }),
+      rule({ rule_key: "c_hold", action: "hold_payout" }),
+      rule({ rule_key: "d_reject", action: "reject" }),
     ];
-    expect(evaluateRules(all, renameOnlyProof).matches.map((match) => match.action)).toEqual([
+    expect(evaluateRules(all, renameOnlyProof).matched.map((match) => match.action)).toEqual([
       "reject",
       "hold_payout",
       "ask_more",
@@ -93,16 +103,10 @@ describe("evaluateRules", () => {
     ]);
 
     const withoutReject = all.filter((r) => r.action !== "reject");
-    const holdWins = evaluateRules(withoutReject, renameOnlyProof);
-    expect(holdWins.outcome).toBe("accepted");
-    expect(holdWins.payout_hold).toBe(true);
-
-    const askWins = evaluateRules(
-      withoutReject.filter((r) => r.action !== "hold_payout"),
-      renameOnlyProof,
+    expect(evaluateRules(withoutReject, renameOnlyProof).decision).toBe("hold_payout");
+    expect(evaluateRules(withoutReject.filter((r) => r.action !== "hold_payout"), renameOnlyProof).decision).toBe(
+      "ask_more",
     );
-    expect(askWins.outcome).toBe("held");
-    expect(askWins.payout_hold).toBe(false);
   });
 
   it("applies all and any combinators", () => {
@@ -122,24 +126,24 @@ describe("evaluateRules", () => {
         ],
       },
     });
-    expect(evaluateRules([allRule], renameOnlyProof).outcome).toBe("no_decision");
-    expect(evaluateRules([anyRule], renameOnlyProof).outcome).toBe("rejected");
+    expect(evaluateRules([allRule], renameOnlyProof).decision).toBe("none");
+    expect(evaluateRules([anyRule], renameOnlyProof).decision).toBe("reject");
   });
 
   it("skips a stored rule with an unknown action or a malformed when, without throwing", () => {
-    const badAction = { ...rule({ rule_key: "x.bad_action" }), action: "delete" } as unknown as EvaluableRule;
-    const badWhen = { ...rule({ rule_key: "x.bad_when" }), when: {} } as unknown as EvaluableRule;
+    const badAction = { ...rule({ rule_key: "x_bad_action" }), action: "delete" } as unknown as EvaluableRule;
+    const badWhen = { ...rule({ rule_key: "x_bad_when" }), when: {} } as unknown as EvaluableRule;
 
-    const decision = evaluateRules([badAction, badWhen], renameOnlyProof);
+    const result = evaluateRules([badAction, badWhen], renameOnlyProof);
 
-    expect(decision.outcome).toBe("no_decision");
-    expect(decision.evaluated.map((ref) => ref.rule_key).sort()).toEqual(["x.bad_action", "x.bad_when"]);
+    expect(result.decision).toBe("none");
+    expect(result.evaluated.map((ref) => ref.rule_key).sort()).toEqual(["x_bad_action", "x_bad_when"]);
   });
 
   it("evaluates a proof against 50 rules in under 5 ms", () => {
     const rules = Array.from({ length: 50 }, (_, i) =>
       rule({
-        rule_key: `ship_week.rule_${String(i).padStart(2, "0")}`,
+        rule_key: `rule_${String(i).padStart(2, "0")}`,
         action: (["flag", "ask_more", "hold_payout", "reject"] as const)[i % 4],
         when: {
           all: [
@@ -157,9 +161,9 @@ describe("evaluateRules", () => {
     let worst = 0;
     for (let i = 0; i < runs; i += 1) {
       const start = performance.now();
-      const decision = evaluateRules(rules, features);
+      const result = evaluateRules(rules, features);
       worst = Math.max(worst, performance.now() - start);
-      expect(decision.evaluated).toHaveLength(50);
+      expect(result.evaluated).toHaveLength(50);
     }
 
     expect(worst).toBeLessThan(5);
@@ -168,12 +172,12 @@ describe("evaluateRules", () => {
 
 describe("matchesCondition", () => {
   it("treats matches as a literal, case-insensitive substring test", () => {
-    const condition = { feature: "message_matches", op: "matches", value: "fix typo" } as const;
-    expect(matchesCondition(condition, { message_matches: "FIX TYPO in readme" })).toBe(true);
-    expect(matchesCondition(condition, { message_matches: "fixed a typo" })).toBe(false);
+    const cond = { feature: "message_matches", op: "matches", value: "fix typo" } as const;
+    expect(matchesCondition(cond, { message_matches: "FIX TYPO in readme" })).toBe(true);
+    expect(matchesCondition(cond, { message_matches: "fixed a typo" })).toBe(false);
     // A regex-looking stored value never runs as a regex.
-    expect(matchesCondition({ ...condition, value: "a.c" }, { message_matches: "abc" })).toBe(false);
-    expect(matchesCondition({ ...condition, value: "a.c" }, { message_matches: "xa.cx" })).toBe(true);
+    expect(matchesCondition({ ...cond, value: "a.c" }, { message_matches: "abc" })).toBe(false);
+    expect(matchesCondition({ ...cond, value: "a.c" }, { message_matches: "xa.cx" })).toBe(true);
   });
 
   it("does not match a missing feature, an inherited key or a type mismatch", () => {
@@ -192,130 +196,164 @@ describe("matchesCondition", () => {
     expect(matchesCondition({ feature: "code_lines_changed", op: "gt", value: 4 }, features)).toBe(true);
     expect(matchesCondition({ feature: "code_lines_changed", op: "gte", value: 6 }, features)).toBe(false);
   });
+
+  it("matches a string_list feature when any item passes the test", () => {
+    const domains = { attendee_domains: ["gmail.com", "Acme.io"] };
+    expect(matchesCondition({ feature: "attendee_domains", op: "in", value: ["gmail.com", "yahoo.com"] }, domains)).toBe(
+      true,
+    );
+    expect(matchesCondition({ feature: "attendee_domains", op: "in", value: ["yahoo.com"] }, domains)).toBe(false);
+    expect(matchesCondition({ feature: "attendee_domains", op: "matches", value: "acme" }, domains)).toBe(true);
+    expect(matchesCondition({ feature: "attendee_domains", op: "in", value: ["x"] }, { attendee_domains: [] })).toBe(
+      false,
+    );
+    expect(matchesCondition({ feature: "attendee_domains", op: "gt", value: 1 }, domains)).toBe(false);
+  });
 });
 
-describe("RuleEngine with MongoDB", () => {
-  let server: MongoMemoryServer;
-  let clientA: MongoClient;
+describe("rule engine with MongoDB", () => {
+  let mongo: TestMongo;
   let clientB: MongoClient;
   let dbA: Db;
   let dbB: Db;
   const commandsB: CommandStartedEvent[] = [];
-  const dbName = "lane_rules_test";
 
   beforeAll(async () => {
-    server = await MongoMemoryServer.create();
-    const uri = server.getUri();
-    clientA = await new MongoClient(uri).connect();
-    clientB = new MongoClient(uri, { monitorCommands: true });
+    mongo = await startReplSet();
+    // A second connection to U3's replica set, as a separate function instance would have.
+    clientB = new MongoClient(mongo.replSet.getUri(), { monitorCommands: true });
     clientB.on("commandStarted", (event) => commandsB.push(event));
     await clientB.connect();
-    dbA = clientA.db(dbName);
-    dbB = clientB.db(dbName);
-    // U3 creates this index at startup; recreate it here with the same spec.
-    await dbA.collection(RULES_COLLECTION).createIndex(RULES_ACTIVE_INDEX.key, RULES_ACTIVE_INDEX.options);
-    // The first run downloads a mongod binary (about 77 MB), so allow for a slow link.
-  }, 600_000);
+  });
 
-  afterEach(async () => {
-    await dbA.collection(RULES_COLLECTION).deleteMany({});
+  afterEach(() => {
+    resetServices();
     commandsB.length = 0;
   });
 
   afterAll(async () => {
-    await clientA?.close();
     await clientB?.close();
-    await server?.stop();
+    await mongo?.stop();
   });
 
+  /** An empty database with every U3 index (ensureIndexes), opened on both connections. */
+  async function freshPair(): Promise<void> {
+    dbA = await mongo.freshDb();
+    dbB = clientB.db(dbA.databaseName);
+    commandsB.length = 0;
+  }
+
   it("returns no decision when the challenge type has no active rules", async () => {
-    const result = await new RuleEngine(dbB).evaluate(SHIP_WEEK, renameOnlyProof);
-    expect(result.outcome).toBe("no_decision");
-    expect(result.evaluated).toEqual([]);
-    expect(result.challenge_type).toBe(SHIP_WEEK);
+    await freshPair();
+    const result = await evaluate(dbB, { challenge_type: SHIP_WEEK, features: renameOnlyProof });
+    expect(result).toEqual({ decision: "none", rule: null, matched: [], evaluated: [] });
   });
 
   it("evaluates only active rules for the requested challenge type", async () => {
-    await dbA.collection<RuleDocument>(RULES_COLLECTION).insertMany([
-      ruleDocument({ rule_key: "ship_week.rename_only", version: 2, status: "active" }),
-      ruleDocument({ rule_key: "ship_week.rename_only", version: 1, status: "retired" }),
-      ruleDocument({ rule_key: "ship_week.candidate", status: "candidate" }),
-      ruleDocument({ rule_key: "ship_week.pending", status: "pending_approval" }),
-      ruleDocument({ rule_key: "bip.rename_only", challenge_type: "build_in_public", status: "active" }),
+    await freshPair();
+    await collections(dbA).rules.insertMany([
+      ruleDocument({ rule_key: "rename_only", version: 2, status: "active" }),
+      ruleDocument({ rule_key: "rename_only", version: 1, status: "retired" }),
+      ruleDocument({ rule_key: "candidate", status: "candidate" }),
+      ruleDocument({ rule_key: "pending", status: "pending_approval" }),
+      ruleDocument({ rule_key: "rename_only", challenge_type: "build_in_public", status: "active" }),
     ]);
 
-    const result = await new RuleEngine(dbB).evaluate(SHIP_WEEK, renameOnlyProof);
+    const result = await evaluate(dbB, { challenge_type: SHIP_WEEK, features: renameOnlyProof });
 
-    expect(result.outcome).toBe("rejected");
-    expect(result.decided_by).toEqual({ rule_key: "ship_week.rename_only", version: 2, action: "reject" });
-    expect(result.evaluated).toEqual([{ rule_key: "ship_week.rename_only", version: 2 }]);
+    expect(result.decision).toBe("reject");
+    expect(result.rule).toEqual({ rule_key: "rename_only", version: 2 });
+    expect(result.evaluated).toEqual([{ rule_key: "rename_only", version: 2 }]);
   });
 
-  it("loads active rules with one find that uses the active-rules index", async () => {
-    await dbA.collection<RuleDocument>(RULES_COLLECTION).insertMany([
-      ruleDocument({ rule_key: "ship_week.rename_only" }),
-      ruleDocument({ rule_key: "ship_week.docs_only", when: { all: [{ feature: "docs_only", op: "eq", value: true }] } }),
+  it("loads active rules with one find that uses U3's rules index", async () => {
+    await freshPair();
+    await collections(dbA).rules.insertMany([
+      ruleDocument({ rule_key: "rename_only" }),
+      ruleDocument({ rule_key: "docs_only", when: { all: [{ feature: "docs_only", op: "eq", value: true }] } }),
     ]);
 
-    const engine = new RuleEngine(dbB);
-    await engine.evaluate(SHIP_WEEK, renameOnlyProof);
+    await evaluate(dbB, { challenge_type: SHIP_WEEK, features: renameOnlyProof });
 
-    const ruleCommands = commandsB.filter((event) => event.command[event.commandName] === RULES_COLLECTION);
+    const ruleCommands = commandsB.filter((event) => event.command[event.commandName] === COLLECTIONS.rules);
     expect(ruleCommands.map((event) => event.commandName)).toEqual(["find"]);
     expect(ruleCommands[0]?.command.filter).toEqual({ challenge_type: SHIP_WEEK, status: "active" });
 
-    const explain = await dbB
-      .collection(RULES_COLLECTION)
-      .find({ challenge_type: SHIP_WEEK, status: "active" })
+    // The index U3 creates for KTD7's one indexed read, and the partial unique index on active rules.
+    const rulesIndexNames = ALL_INDEXES.filter((def) => def.collection === "rules").map((def) => def.name);
+    expect(rulesIndexNames).toContain("by_type_status");
+
+    const explain = await collections(dbB)
+      .rules.find({ challenge_type: SHIP_WEEK, status: "active" })
       .explain("queryPlanner");
-    const indexNames = collectIndexScans(explain.queryPlanner?.winningPlan);
-    expect(indexNames).toContain(RULES_ACTIVE_INDEX.options.name);
+    const winningPlan = explain.queryPlanner?.winningPlan;
+    const scans = collectStages(winningPlan);
+    expect(scans.collscan).toBe(false);
+    expect(scans.ixscans.length).toBeGreaterThan(0);
+    for (const name of scans.ixscans) expect(rulesIndexNames).toContain(name);
   });
 
-  it("accepts the rules collection directly instead of the database", async () => {
-    await dbA.collection<RuleDocument>(RULES_COLLECTION).insertOne(ruleDocument({ action: "hold_payout" }));
+  it("reads inside the caller's transaction when a session is passed", async () => {
+    await freshPair();
+    const session = mongo.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await collections(dbA).rules.insertOne(ruleDocument({ rule_key: "rename_only" }), { session });
+        const inside = await evaluate(dbA, { challenge_type: SHIP_WEEK, features: renameOnlyProof, session });
+        expect(inside.decision).toBe("reject");
+        // Outside the transaction the insert is not visible yet.
+        const outside = await evaluate(dbB, { challenge_type: SHIP_WEEK, features: renameOnlyProof });
+        expect(outside.decision).toBe("none");
+      });
+    } finally {
+      await session.endSession();
+    }
+  });
 
-    const result = await new RuleEngine(dbB.collection<RuleDocument>(RULES_COLLECTION)).evaluate(
-      SHIP_WEEK,
-      renameOnlyProof,
-    );
+  it("is wired as U4's engine service through interfaces.ts", async () => {
+    await freshPair();
+    await collections(dbA).rules.insertOne(ruleDocument({ action: "hold_payout" }));
 
-    expect(result.outcome).toBe("accepted");
-    expect(result.payout_hold).toBe(true);
+    provideServices({ engine: engineService });
+    const result = await services().engine.evaluate(dbB, { challenge_type: SHIP_WEEK, features: renameOnlyProof });
+
+    expect(result.decision).toBe("hold_payout");
+    expect(verdictForDecision(result.decision)).toEqual({ outcome: "accept", payout_hold: true });
   });
 
   it("covers AE1: a rule activated through one connection applies to another engine's next evaluation", async () => {
-    const engineA = new RuleEngine(dbA);
-    const engineB = new RuleEngine(dbB);
-    const rulesA = dbA.collection<RuleDocument>(RULES_COLLECTION);
+    await freshPair();
+    const rulesA = collections(dbA).rules;
+    const input = { challenge_type: SHIP_WEEK, features: renameOnlyProof } as const;
 
-    // Before activation: the candidate waits for approval and neither engine applies it.
-    await rulesA.insertOne(ruleDocument({ rule_key: "ship_week.rename_only", version: 1, status: "pending_approval" }));
-    expect((await engineA.evaluate(SHIP_WEEK, renameOnlyProof)).outcome).toBe("no_decision");
-    expect((await engineB.evaluate(SHIP_WEEK, renameOnlyProof)).outcome).toBe("no_decision");
+    // Before activation: the candidate waits for approval and neither connection applies it.
+    await rulesA.insertOne(ruleDocument({ rule_key: "rename_only", version: 1, status: "pending_approval" }));
+    expect((await evaluate(dbA, input)).decision).toBe("none");
+    expect((await evaluate(dbB, input)).decision).toBe("none");
 
     // Activate through connection A.
-    await rulesA.updateOne({ rule_key: "ship_week.rename_only", version: 1 }, { $set: { status: "active" } });
+    await rulesA.updateOne({ rule_key: "rename_only", version: 1 }, { $set: { status: "active" } });
 
-    // Engine B, on its own connection, applies it on its very next evaluation.
-    const result = await engineB.evaluate(SHIP_WEEK, renameOnlyProof);
-    expect(result.outcome).toBe("rejected");
-    expect(result.decided_by).toEqual({ rule_key: "ship_week.rename_only", version: 1, action: "reject" });
-    expect(result.evaluated).toEqual([{ rule_key: "ship_week.rename_only", version: 1 }]);
+    // Connection B applies it on its very next evaluation.
+    const result = await evaluate(dbB, input);
+    expect(result.decision).toBe("reject");
+    expect(result.rule).toEqual({ rule_key: "rename_only", version: 1 });
+    expect(result.evaluated).toEqual([{ rule_key: "rename_only", version: 1 }]);
 
     // Rolling it back through A is just as immediate for B.
-    await rulesA.updateOne({ rule_key: "ship_week.rename_only", version: 1 }, { $set: { status: "rolled_back" } });
-    expect((await engineB.evaluate(SHIP_WEEK, renameOnlyProof)).outcome).toBe("no_decision");
+    await rulesA.updateOne({ rule_key: "rename_only", version: 1 }, { $set: { status: "rolled_back" } });
+    expect((await evaluate(dbB, input)).decision).toBe("none");
   });
 });
 
-function collectIndexScans(plan: unknown, found: string[] = []): string[] {
+function collectStages(plan: unknown, found = { ixscans: [] as string[], collscan: false }) {
   if (Array.isArray(plan)) {
-    for (const item of plan) collectIndexScans(item, found);
+    for (const item of plan) collectStages(item, found);
   } else if (plan && typeof plan === "object") {
     const node = plan as Record<string, unknown>;
-    if (node.stage === "IXSCAN" && typeof node.indexName === "string") found.push(node.indexName);
-    for (const value of Object.values(node)) collectIndexScans(value, found);
+    if (node.stage === "IXSCAN" && typeof node.indexName === "string") found.ixscans.push(node.indexName);
+    if (node.stage === "COLLSCAN") found.collscan = true;
+    for (const value of Object.values(node)) collectStages(value, found);
   }
   return found;
 }
