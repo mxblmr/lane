@@ -4,7 +4,8 @@
 // `vitest.config.ts`, which `pnpm -r test` uses.
 export const laneProjects = [
   "packages/core/vitest.config.ts",
-  "apps/web/vitest.config.ts",
+  // .mts because apps/web is CommonJS for next.config.ts.
+  "apps/web/vitest.config.mts",
   "scripts/vitest.config.ts",
 ];
 
