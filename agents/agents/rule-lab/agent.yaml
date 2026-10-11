@@ -2,19 +2,15 @@
 # Based on the official hello-world-agent-ts template (mongodb/agent-engine-examples).
 name: rule-lab
 description: Lane rule-lab. Writes a candidate rule from quoted evidence, then proposes and tests it through Lane's internal API, or adds red-team cheat examples. Never activates a rule.
-
 # src/rule_lab_agent/main.ts, compiled to dist/rule_lab_agent/main.js, exports `app`.
 entrypoint: rule_lab_agent.main:app
 framework: langgraph
 language: typescript
-
 features:
   durable_workflow: true
   memory: false
-
 scaling:
   replicas: 16
-
 sandboxes:
   agent:
     secrets: ["*"]
@@ -36,4 +32,7 @@ sandboxes:
     #   agentengine agent egress add --component tool <lane-host>:443
     # That command switches this sandbox to allow_list.
     network:
-      egress_mode: deny_all
+      egress_mode: allow_list
+      egress:
+        - fqdn: lane-seven-phi.vercel.app
+          ports: [443]

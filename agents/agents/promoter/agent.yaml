@@ -3,19 +3,15 @@
 # (mongodb/agent-engine-examples); the interrupt pattern follows insurance-agent-ts.
 name: promoter
 description: Lane promoter. Activates a gated candidate rule through Lane's internal API. Suspends for a human approve or decline before activating reject and hold_payout rules.
-
 # src/promoter_agent/main.ts, compiled to dist/promoter_agent/main.js, exports `app`.
 entrypoint: promoter_agent.main:app
 framework: langgraph
 language: typescript
-
 features:
   durable_workflow: true
   memory: false
-
 scaling:
   replicas: 16
-
 sandboxes:
   agent:
     secrets: ["*"]
@@ -37,4 +33,7 @@ sandboxes:
     #   agentengine agent egress add --component tool <lane-host>:443
     # That command switches this sandbox to allow_list.
     network:
-      egress_mode: deny_all
+      egress_mode: allow_list
+      egress:
+        - fqdn: lane-seven-phi.vercel.app
+          ports: [443]

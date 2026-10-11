@@ -48,7 +48,10 @@ export const ANSWER_NOW = "Stop calling tools. Give your final answer now: only 
 export type MessagesUpdate = BaseMessage[] | { reset: BaseMessage[] };
 
 export function messagesReducer(left: BaseMessage[], right: MessagesUpdate): BaseMessage[] {
-  return Array.isArray(right) ? left.concat(right) : right.reset;
+  if (!Array.isArray(right)) return right.reset;
+  // Fresh input begins with its system contract. Reset here, after the SDK has
+  // coerced the supported message array, so a reused session keeps no history.
+  return right.length > 0 && SystemMessage.isInstance(right[0]) ? right : left.concat(right);
 }
 
 /** Reads and checks the Lane payload of a fresh execution. Throws when it is missing. */
@@ -94,7 +97,7 @@ export function answerContract(schema: Record<string, unknown>): string {
   ].join(" ");
 }
 
-/** Graph input for a fresh execution. `reset` drops anything an earlier run left on the thread. */
+/** SDK-compatible fresh input. The reducer resets history on its system contract. */
 export function freshInput(payload: LanePayload): { messages: MessagesUpdate; task: LanePayload; tool_rounds: number } {
   const data = [laneData("input", payload.input)];
   if (payload.internal_api) {
@@ -104,7 +107,7 @@ export function freshInput(payload: LanePayload): { messages: MessagesUpdate; ta
     new SystemMessage([payload.prompt, DATA_RULE, answerContract(payload.output_schema)].join("\n\n")),
     new HumanMessage(data.join("\n\n")),
   ];
-  return { messages: { reset: messages }, task: payload, tool_rounds: 0 };
+  return { messages, task: payload, tool_rounds: 0 };
 }
 
 /**
