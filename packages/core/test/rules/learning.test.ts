@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Db } from "mongodb";
 import { startReplSet, type TestMongo } from "../../src/testing/mongo";
 import { collections } from "../../src/schema/collections";
@@ -41,6 +41,7 @@ import {
   T0,
   type AgentScript,
 } from "./u9-fixtures";
+import { stubRaindrop, TEST_RAINDROP_KEY } from "../helpers/raindrop";
 
 let mongo: TestMongo;
 beforeAll(async () => {
@@ -428,5 +429,52 @@ describe("learning chain (R20 to R24, KTD10, KTD20)", () => {
     expect(noEgressFromEnv({ LANE_AGENT_NO_EGRESS: "true" })).toBe(true);
     expect(noEgressFromEnv({ LANE_AGENT_NO_EGRESS: "" })).toBe(false);
     expect(noEgressFromEnv({})).toBe(false);
+  });
+});
+
+describe("U20: Raindrop live_cheat_missed (KTD24)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("sends one NEGATIVE live_cheat_missed signal on the proof's event id when a live cheat is first marked", async () => {
+    const { db } = await setup(() => ({}))();
+    const proofId = await insertProof(db, { challenge_type: "customers", features: callFeatures({ all_personal_email: true, has_notes: false }), cheat_class: null, ai_judgment: false });
+    const raindrop = stubRaindrop();
+
+    const first = await markLiveCheat(db, { proof_id: proofId, by: "presenter", now: T0 });
+    await markLiveCheat(db, { proof_id: proofId, by: "presenter", now: T0 });
+    await raindrop.settle();
+
+    expect(first.queued).toBe(true);
+    expect(raindrop.calls).toHaveLength(1);
+    const [call] = raindrop.signals();
+    expect(call?.authorization).toBe(`Bearer ${TEST_RAINDROP_KEY}`);
+    expect(call?.body).toEqual([
+      {
+        event_id: proofId,
+        signal_name: "live_cheat_missed",
+        sentiment: "NEGATIVE",
+        signal_type: "default",
+        properties: expect.objectContaining({ proof_id: proofId, cheat_class: "all_personal_email", example_key: `live-${proofId}` }),
+      },
+    ]);
+    expect(JSON.stringify(call?.body)).not.toContain("presenter");
+  });
+
+  it("a rejecting Raindrop fetch leaves the example and the learning job unchanged", async () => {
+    const { db } = await setup(() => ({}))();
+    const proofId = await insertProof(db, { challenge_type: "customers", features: callFeatures({ all_personal_email: true, has_notes: false }), cheat_class: null, ai_judgment: false });
+    const raindrop = stubRaindrop({ reject: true });
+
+    const res = await markLiveCheat(db, { proof_id: proofId, by: "presenter", now: T0 });
+    await raindrop.settle();
+
+    expect(raindrop.calls).toHaveLength(1);
+    expect(res.queued).toBe(true);
+    expect(await collections(db).examples.countDocuments({ example_key: `live-${proofId}` })).toBe(1);
+    expect(await collections(db).jobs.countDocuments({ kind: "learning" })).toBe(1);
   });
 });

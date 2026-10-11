@@ -17,6 +17,7 @@ import { readSettings } from "./config";
 import { currentDayIndex, dayStart, graceDeadline, isWindowClosed } from "./clock";
 import { queueJob } from "./jobs";
 import { writeEvent } from "./events";
+import { trackSignal } from "./observe/raindrop";
 import { getPack } from "./packs/index";
 import { addInboxItem } from "./inbox";
 
@@ -291,6 +292,23 @@ export async function fileDispute(db: Db, input: DisputeInput, opts: DisputeOpti
     proof_id: proof._id,
     data: { dispute_id: dispute._id },
     at: now,
+  });
+  // U20 (KTD24): a dispute is a negative signal on the disputed proof's verdict event. Fired
+  // after the insert and never awaited; ids and outcomes only, never the reason (KTD15).
+  void trackSignal({
+    eventId: proof._id,
+    signalName: "verdict_disputed",
+    sentiment: "NEGATIVE",
+    properties: {
+      challenge_type: challenge.type,
+      challenge_id: challenge._id,
+      proof_id: proof._id,
+      dispute_id: dispute._id,
+      decided_by: proof.verdict?.decided_by ?? null,
+      outcome: proof.verdict?.outcome ?? null,
+      rule_key: proof.verdict?.rule?.rule_key ?? null,
+      rule_version: proof.verdict?.rule?.version ?? null,
+    },
   });
 
   const pack = (opts.packFor ?? getPack)(challenge.type);

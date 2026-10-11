@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { fileDispute } from "../src/disputes";
 import { checkIn } from "../src/checkin";
 import { addInboxItem, deliverInfoItems, resolveInboxItem } from "../src/inbox";
@@ -9,6 +9,7 @@ import { QUOTED_NOTE, type RefereeDisputeInput, type RefereeDisputeOutput } from
 import { provideServices, resetServices, type AgentInvokeInput, type LaneServices } from "../src/interfaces";
 import { startReplSet, type TestMongo } from "../src/testing/mongo";
 import { extraProofItem, seedChallenge, seedContract, seedMembership, seedPlayer, seedProof } from "./helpers/u18-seed";
+import { stubRaindrop, TEST_RAINDROP_KEY } from "./helpers/raindrop";
 
 let mongo: TestMongo;
 beforeAll(async () => {
@@ -212,5 +213,54 @@ describe("disputes (R26, F5)", () => {
     // Sam still gets the request, in Lane's words.
     const request = await collections(db).inbox.findOne({ kind: "extra_proof", player_id: sam._id });
     expect(request?.instruction).toMatch(/^The referees need extra proof/);
+  });
+});
+
+describe("U20: Raindrop verdict_disputed (KTD24)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("sends one NEGATIVE verdict_disputed signal on the proof's event id when a dispute is opened, never the reason", async () => {
+    const { db, priya, challenge, call } = await customers();
+    referee("unfounded");
+    const raindrop = stubRaindrop();
+
+    const res = await fileDispute(db, { player_id: priya._id, proof_id: call._id, reason: "Only attendee is a gmail address.", now: at(60) });
+    const repeat = await fileDispute(db, { player_id: priya._id, proof_id: call._id, reason: "Again.", now: at(61) });
+    await raindrop.settle();
+
+    expect(res.ok && res.created).toBe(true);
+    expect(repeat.ok && repeat.created).toBe(false);
+    if (!res.ok) return;
+    expect(raindrop.calls).toHaveLength(1);
+    const [sent] = raindrop.signals();
+    expect(sent?.authorization).toBe(`Bearer ${TEST_RAINDROP_KEY}`);
+    expect(sent?.body).toEqual([
+      {
+        event_id: call._id,
+        signal_name: "verdict_disputed",
+        sentiment: "NEGATIVE",
+        signal_type: "default",
+        properties: expect.objectContaining({ proof_id: call._id, dispute_id: res.dispute._id, challenge_id: challenge._id }),
+      },
+    ]);
+    expect(JSON.stringify(sent?.body)).not.toContain("gmail");
+  });
+
+  it("a rejecting Raindrop fetch leaves the dispute and its outcome unchanged", async () => {
+    const { db, priya, call } = await customers();
+    referee("unfounded");
+    const raindrop = stubRaindrop({ reject: true });
+
+    const res = await fileDispute(db, { player_id: priya._id, proof_id: call._id, reason: "Only attendee is a gmail address.", now: at(60) });
+    await raindrop.settle();
+
+    expect(raindrop.calls).toHaveLength(1);
+    expect(res.ok && res.created).toBe(true);
+    if (res.ok) expect(res.dispute.outcome).toBe("unfounded");
+    expect(await collections(db).disputes.countDocuments({ proof_id: call._id })).toBe(1);
   });
 });

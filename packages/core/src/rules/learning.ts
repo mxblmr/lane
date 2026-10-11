@@ -10,6 +10,7 @@ import { getPack, renderRuleLine } from "../packs/index";
 import { claimJob, queueJob, runClaimedJob, runDueJobs, type JobContext, type JobHandlers, type JobOutcome, type RunJobResult } from "../jobs";
 import type { Clock } from "../clock";
 import { writeEvent } from "../events";
+import { trackSignal } from "../observe/raindrop";
 import {
   services,
   type AgentInvokeResult,
@@ -137,6 +138,23 @@ export async function markLiveCheat(db: Db, input: MarkLiveCheatInput): Promise<
       proof_id: proof._id,
       data: { cheat_class: cheatClass, example_key: exampleKey, by: input.by.slice(0, 64) },
       at: now,
+    });
+    // U20 (KTD24): a live cheat is a miss on the proof's verdict event. Not awaited; ids only.
+    void trackSignal({
+      eventId: proof._id,
+      signalName: "live_cheat_missed",
+      sentiment: "NEGATIVE",
+      properties: {
+        challenge_type: proof.challenge_type,
+        challenge_id: proof.challenge_id,
+        proof_id: proof._id,
+        cheat_class: cheatClass,
+        example_key: exampleKey,
+        decided_by: proof.verdict?.decided_by ?? null,
+        outcome: proof.verdict?.outcome ?? null,
+        rule_key: proof.verdict?.rule?.rule_key ?? null,
+        rule_version: proof.verdict?.rule?.version ?? null,
+      },
     });
   }
   return queueLearning(db, {

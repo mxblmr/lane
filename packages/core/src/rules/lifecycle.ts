@@ -8,6 +8,7 @@ import { getPack, renderRuleLine } from "../packs/index";
 import { readSettings } from "../config";
 import { writeEvent } from "../events";
 import { inTransaction } from "../ledger";
+import { trackSignal } from "../observe/raindrop";
 import { services, type LaneServices, type RollbackRuleInput, type RollbackRuleResult } from "../interfaces";
 import { runGate } from "./gate";
 import { validateRule } from "./grammar";
@@ -359,6 +360,27 @@ export async function activateRule(db: Db, input: ActivateInput, opts: Lifecycle
     },
     at: now,
   });
+  // U20 (KTD24): signal the activation on the rule-lab run's event, after the transaction
+  // committed and without awaiting it. Learning invokes rule-lab with the evidence proof id,
+  // example key or dispute id as the event id, so the rule's evidence names that event.
+  const labEventId = ruleLabEventId(outcome.rule);
+  if (labEventId) {
+    void trackSignal({
+      eventId: labEventId,
+      signalName: "rule_activated",
+      sentiment: "POSITIVE",
+      properties: {
+        challenge_type: rule.challenge_type,
+        rule_id: rule._id,
+        rule_key: rule.rule_key,
+        rule_version: rule.version,
+        action: rule.action,
+        cheat_class: rule.cheat_class,
+        retired_version: outcome.retired?.version ?? null,
+        execution_id: input.execution_id ?? null,
+      },
+    });
+  }
   const contracts = await publishSafely(db, {
     challenge_type: rule.challenge_type,
     reason: "rule_activated",
@@ -368,6 +390,11 @@ export async function activateRule(db: Db, input: ActivateInput, opts: Lifecycle
     rule_version: rule.version,
   });
   return { ok: true, rule: outcome.rule, status: "active", contracts, already_active: false };
+}
+
+/** The event id learning gave the rule-lab run that wrote this rule, when the evidence names one. */
+function ruleLabEventId(rule: Rule): string | null {
+  return rule.evidence.proof_ids[0] ?? rule.evidence.example_keys[0] ?? rule.evidence.dispute_ids[0] ?? null;
 }
 
 /**
