@@ -21,6 +21,18 @@ import type { AgentIO, AgentWorkspace, PromoterInterrupt } from "./schema/agents
 import { appendLedgerEntry, type LedgerAppendInput, type LedgerAppendOptions, type LedgerAppendResult } from "./ledger";
 import { claimJob, claimNextJob, queueJob, type ClaimOptions, type JobClaim, type QueueJobInput, type QueueJobResult } from "./jobs";
 import type { JobKind } from "./schema/jobs";
+import { ensureIndexes } from "./schema/indexes";
+import { getDb } from "./db";
+
+/**
+ * The Lane database with every unique index ensured (once per process). Routes should get
+ * their `Db` here rather than from `db.ts` directly, so the KTD6 indexes exist from startup.
+ */
+export async function laneDb(): Promise<Db> {
+  const db = await getDb();
+  await ensureIndexes(db);
+  return db;
+}
 
 /**
  * Cross-unit calls (U3 approach step 4). Each call has exactly one owner unit. Units call each

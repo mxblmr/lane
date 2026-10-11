@@ -125,23 +125,33 @@ export const OrchestratorDraftInputSchema = z.object({
 });
 export type OrchestratorDraftInput = z.infer<typeof OrchestratorDraftInputSchema>;
 
-export const OrchestratorDraftOutputSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("question"),
+/**
+ * One flat object (not a union) so every agent output schema has an object root, which
+ * structured-output providers require. `kind` says which fields are set.
+ */
+export const OrchestratorDraftOutputSchema = z
+  .object({
+    kind: z.enum(["question", "params"]),
     challenge_type: ChallengeTypeSchema.nullable(),
-    question: z.string().min(1).max(500),
+    /** Set when kind is "question" (R4, AE7). */
+    question: z.string().max(500).nullable(),
     missing_fields: z.array(z.string()),
+    /** Set when kind is "params". */
+    title: z.string().max(80).nullable(),
+    goal: z.int().min(1).nullable(),
+    days: z.int().min(1).max(60).nullable(),
     params: ParamsSchema,
-  }),
-  z.object({
-    kind: z.literal("params"),
-    challenge_type: ChallengeTypeSchema,
-    title: z.string().min(1).max(80),
-    goal: z.int().min(1),
-    days: z.int().min(1).max(60),
-    params: ParamsSchema,
-  }),
-]);
+  })
+  .superRefine((o, ctx) => {
+    if (o.kind === "question" && !o.question) {
+      ctx.addIssue({ code: "custom", path: ["question"], message: "a question is required when kind is question" });
+    }
+    if (o.kind === "params") {
+      for (const key of ["challenge_type", "title", "goal", "days"] as const) {
+        if (o[key] === null) ctx.addIssue({ code: "custom", path: [key], message: `${key} is required when kind is params` });
+      }
+    }
+  });
 export type OrchestratorDraftOutput = z.infer<typeof OrchestratorDraftOutputSchema>;
 
 export const AskContextChallengeSchema = z.object({

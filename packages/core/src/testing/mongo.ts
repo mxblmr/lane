@@ -1,12 +1,14 @@
 import { MongoClient, type Db } from "mongodb";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
-import { ensureIndexes } from "../../src/schema/indexes";
+import { ensureIndexes } from "../schema/indexes";
 
 /**
- * In-memory single-node replica set for tests, so transactions work (KTD2).
- * Usage:
- *   const mongo = useReplSet();            // at file top level, registers beforeAll/afterAll
- *   it("...", async () => { const db = mongo.db(); ... });
+ * In-memory single-node replica set for tests, so transactions work (KTD2). Test helper only;
+ * never imported by a route. Usage, from `@lane/core/testing/mongo`:
+ *   let mongo: TestMongo;
+ *   beforeAll(async () => { mongo = await startReplSet(); });
+ *   afterAll(async () => { await mongo?.stop(); });
+ *   it("...", async () => { const db = await mongo.freshDb(); ... });
  * Each call to `freshDb()` returns an empty database with every index created.
  */
 export interface TestMongo {

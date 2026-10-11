@@ -5,7 +5,7 @@ import { collections } from "../src/schema/collections";
 import type { Proof } from "../src/schema/proofs";
 import type { InboxItem } from "../src/schema/inbox";
 import type { Challenge } from "../src/schema/challenges";
-import { startReplSet, type TestMongo } from "./helpers/mongo";
+import { startReplSet, type TestMongo } from "../src/testing/mongo";
 
 const START = new Date("2026-10-11T20:00:00.000Z");
 const clock = demoClockSettings(START, { day_length_sec: 300, days: 3, grace_sec: 90 });
