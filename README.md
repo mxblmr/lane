@@ -1,5 +1,5 @@
 # lane
-Hackathon project — HQ (hqforwork.com) is the project brain
+Hackathon project. — HQ (hqforwork.com) is the project brain
 
 ## Development
 
