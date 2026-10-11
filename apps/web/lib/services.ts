@@ -4,6 +4,7 @@ import { contractsService } from "@lane/core/contracts";
 import { provideServices, type ServiceName } from "@lane/core/interfaces";
 import { playersService } from "@lane/core/players";
 import { stageService } from "@lane/scripts/seed/reset";
+import { settlementService } from "@lane/core/settlement/payout";
 import { createProofService } from "@lane/core/proofs/pipeline";
 import { engineService } from "@lane/core/rules/engine";
 import { after } from "next/server";
@@ -39,7 +40,7 @@ export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   lifecycle: "stub",
   engine: "real",
   agents: "stub",
-  settlement: "stub",
+  settlement: "real",
   stage: "real",
 };
 
@@ -62,4 +63,6 @@ export function wireServices(): void {
   // U4: the rule engine. U5: the proof pipeline; a referee reply that misses the request window
   // finishes in Next's `after()` so the verdict still lands.
   provideServices({ engine: engineService, proofs: createProofService({ runAfter: after }) });
+  // U11: scoring, settlement and payouts, run by U18's settlement job handler.
+  provideServices({ settlement: settlementService });
 }
