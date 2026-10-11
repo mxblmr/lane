@@ -1,0 +1,12 @@
+# Lane Agent Engine project configuration (U8).
+#
+# `agentengine create` writes this file for project-level settings, which today
+# means the shared memory service. Lane keeps memory off in every agent
+# (`features.memory: false`), so there is no memory block here.
+#
+# Where the rest of the project lives:
+# - The four workspaces (orchestrator, referee, rule-lab, promoter) are listed in
+#   agent.yaml next to this file, the documented monorepo format.
+# - Egress is declared per sandbox in each agents/<name>/agent.yaml; Agent Engine
+#   refuses to deploy an agent whose agent.yaml declares no egress policy.
+{}

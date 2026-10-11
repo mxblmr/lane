@@ -1,0 +1,16 @@
+# From the official hello-world-agent-ts template, for every agent in this monorepo.
+.agentengine/
+.agentic/
+docker-compose.yml
+.dockerignore
+
+.env
+.env.*
+.devcontainer/
+
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+.DS_Store
