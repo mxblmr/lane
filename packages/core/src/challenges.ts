@@ -698,9 +698,8 @@ async function memberState(
     const plan = planned.plan;
     const unchanged = plan && player.handles[platform]?.handle === plan.handle && bind_action !== null;
     if (plan && !unchanged) {
-      if (bind_action) {
-        await col.inbox.updateOne({ _id: bind_action._id, status: "open" }, { $set: { status: "cancelled", updated_at: now } });
-      }
+      // The old code no longer applies once the handle changes; expire it through the inbox interface.
+      if (bind_action) await services().inbox.expire(db, { now, item_ids: [bind_action._id] });
       bind_action = await inTransaction(db, (session) => startHandleVerification(db, session, player, challenge, plan, now));
     }
   }

@@ -569,6 +569,43 @@ describe("joinChallenge", () => {
     expect(j2.bind_action).toBeNull();
   });
 
+  it("a member who joins again with a new handle gets a new bind code, and the old request expires through the inbox interface", async () => {
+    const expired: string[] = [];
+    provideServices({
+      inbox: {
+        expire: async (target, input) => {
+          expired.push(...(input.item_ids ?? []));
+          await collections(target).inbox.updateMany({ _id: { $in: input.item_ids ?? [] } }, { $set: { status: "expired" } });
+          return { expired: [] };
+        },
+      },
+    });
+    const { confirmed } = await confirmedChallenge({ stake: 100 });
+    if (!confirmed.ok) throw new Error("expected ok");
+    const gary = await register("Gary");
+    const terms = await joinChallenge(db, { player_id: gary.player._id, join_code: confirmed.join_code, now: T0 });
+    if (!terms.ok || terms.phase !== "terms") throw new Error("expected terms");
+    const first = await joinChallenge(db, {
+      player_id: gary.player._id,
+      join_code: confirmed.join_code,
+      accepted_terms_version: terms.terms.terms_version,
+      handle: "garydev-typo",
+      now: T0,
+    });
+    if (!first.ok || first.phase !== "joined" || !first.bind_action) throw new Error("expected a bind action");
+
+    const again = await joinChallenge(db, { player_id: gary.player._id, join_code: confirmed.join_code, handle: "garydev", now: T0 });
+    if (!again.ok || again.phase !== "joined") throw new Error("expected joined");
+    expect(again.already_member).toBe(true);
+    expect(again.bind_action?.code).not.toBe(first.bind_action.code);
+    expect(expired).toEqual([first.bind_action._id]);
+    expect((await collections(db).players.findOne({ _id: gary.player._id }))?.handles.github).toMatchObject({
+      handle: "garydev",
+      bind_code: again.bind_action?.code,
+    });
+    expect(await collections(db).ledger.countDocuments({ player_id: gary.player._id, kind: "stake" })).toBe(1);
+  });
+
   it("refuses an unknown join code with a recovery instruction", async () => {
     const gary = await register("Gary");
     const r = await joinChallenge(db, { player_id: gary.player._id, join_code: "ZZZZZZ", now: T0 });
