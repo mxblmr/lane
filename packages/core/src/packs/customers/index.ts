@@ -1,98 +1,105 @@
 import { z } from "zod";
-import type { FeatureCatalog, Pack } from "../../schema/pack";
-import { genericValue } from "../../schema/pack";
-import { NOTE_CAP_CHARS } from "../../config";
+import type { Pack } from "../../schema/pack";
+import { LabelledExampleSchema } from "../../schema/examples";
+import { customersContract } from "./contract";
+import { extractCustomersFeatures, reduceAttendees, reduceNotes, summarizeCustomers } from "./features";
+import { CUSTOMERS_CHEAT_CLASSES, CUSTOMERS_FEATURES, CUSTOMERS_SEED_RULES } from "./predicates";
+import { attestCalendarEvent, verifyNoHandle } from "./recheck";
+import examplesJson from "./examples.json";
 
 /**
- * STUB Talk to Customers pack (U3). U15 replaces this folder. Keep the export name.
- * The proof schema already applies KTD15's reductions, because nothing else may see full
- * addresses or long notes: attendees become domains and notes are capped.
+ * Talk to Customers pack (U15): R2 counts real conversations with customers or prospects during
+ * the window. Proof is a calendar event the player's agent reads; Lane cannot re-check it, so
+ * every proof is agent-attested (KTD14). The proof parse reduces attendees to domains and caps
+ * notes before anything else sees them (KTD15), and extra-proof answers (meeting notes or the
+ * original invite email) go through the same parse.
  */
 
-export const PERSONAL_EMAIL_DOMAINS = ["gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "proton.me", "protonmail.com", "aol.com"] as const;
+export { CUSTOMERS_CHEAT_CLASSES, CUSTOMERS_FEATURES, CUSTOMERS_SEED_RULES } from "./predicates";
+export { CUSTOMERS_DOES_NOT_COUNT, CustomersParamsSchema, customersContract } from "./contract";
+export {
+  PERSONAL_EMAIL_DOMAINS,
+  SHORT_CALL_MINUTES,
+  callMinutes,
+  extractCustomersFeatures,
+  isPersonalDomain,
+  outsideDomains,
+  reduceAttendees,
+  reduceNotes,
+  summarizeCustomers,
+  toDomain,
+} from "./features";
+export { attestCalendarEvent, renderCallText, verifyNoHandle } from "./recheck";
 
-/** "Jane <jane@acme.com>" or "jane@acme.com" or "acme.com" -> "acme.com". */
-export function toDomain(attendee: string): string {
-  const trimmed = attendee.trim().toLowerCase();
-  const inBrackets = trimmed.match(/<([^>]+)>/)?.[1] ?? trimmed;
-  const at = inBrackets.lastIndexOf("@");
-  return (at >= 0 ? inBrackets.slice(at + 1) : inBrackets).replace(/[^a-z0-9.-]/g, "");
-}
+const isoTime = (field: string) =>
+  z.iso.datetime({ offset: true, message: `Send ${field} as an ISO time with a time zone, for example 2026-10-11T17:00:00Z.` });
 
+/**
+ * The flat submit-proof fields for one calendar event (`event_id`, `starts_at`, `ends_at`,
+ * `attendees`, `notes`). The output is the minimal payload Lane stores: no names, no full
+ * addresses, notes capped.
+ */
 export const CustomersProofSchema = z
   .object({
-    event_id: z.string().trim().min(1, "Send the calendar event id.").max(200),
-    starts_at: z.iso.datetime({ offset: true }),
-    ends_at: z.iso.datetime({ offset: true }),
-    attendees: z.array(z.string()).max(50).default([]),
-    notes: z.string().optional(),
+    event_id: z.string().trim().min(1, "Send the calendar event id.").max(200, "Send the calendar event id, at most 200 characters."),
+    starts_at: isoTime("starts_at"),
+    ends_at: isoTime("ends_at"),
+    attendees: z
+      .array(z.string().max(200, "Send each attendee as one email address or domain."), {
+        message: "Send the call's attendees as a list of email addresses or domains.",
+      })
+      .max(50, "Send at most 50 attendees."),
+    notes: z.string().max(4000, "Send a short summary of the notes, not the full notes.").nullish(),
   })
-  .transform((p) => ({
-    event_id: p.event_id,
-    starts_at: p.starts_at,
-    ends_at: p.ends_at,
-    attendee_domains: [...new Set(p.attendees.map(toDomain).filter(Boolean))],
-    notes_summary: p.notes ? p.notes.slice(0, NOTE_CAP_CHARS) : null,
-  }));
+  .superRefine((p, ctx) => {
+    if (Date.parse(p.ends_at) <= Date.parse(p.starts_at)) {
+      ctx.addIssue({ code: "custom", path: ["ends_at"], message: "Send an ends_at later than starts_at." });
+    }
+    if (Array.isArray(p.attendees) && reduceAttendees(p.attendees).attendee_domains.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["attendees"],
+        message: "Send at least one attendee besides the player, as an email address or a domain.",
+      });
+    }
+  })
+  .transform((p) => {
+    const { player_domain, attendee_domains } = reduceAttendees(p.attendees);
+    return {
+      event_id: p.event_id,
+      starts_at: new Date(p.starts_at).toISOString(),
+      ends_at: new Date(p.ends_at).toISOString(),
+      player_domain,
+      attendee_domains,
+      notes_summary: reduceNotes(p.notes),
+    };
+  });
 export type CustomersProof = z.infer<typeof CustomersProofSchema>;
 
-export const CUSTOMERS_FEATURES: FeatureCatalog = {
-  duration_min: { kind: "number", description: "Call length in minutes.", ops: ["lt", "lte", "gt", "gte"], bound: { min: 0, max: 30 } },
-  attendee_count: { kind: "number", description: "Outside attendees.", ops: ["lt", "lte", "gt", "gte", "eq"], bound: { min: 0, max: 10 } },
-  attendee_domains: { kind: "string_list", description: "Attendee domains.", ops: ["in"] },
-  all_personal_email: { kind: "boolean", description: "Every outside attendee uses a personal email domain.", ops: ["eq"] },
-  internal_only: { kind: "boolean", description: "Every attendee shares the player's domain.", ops: ["eq"] },
-  has_notes: { kind: "boolean", description: "Meeting notes were sent.", ops: ["eq"] },
-  short_call: { kind: "boolean", description: "The call lasted under five minutes.", ops: ["eq"] },
-};
-
-export const CUSTOMERS_CHEAT_CLASSES = ["all_personal_email", "internal_only", "short_call"] as const;
+export const CUSTOMERS_EXAMPLES = z.array(LabelledExampleSchema).parse(examplesJson);
 
 export const customersPack: Pack<CustomersProof> = {
   type: "customers",
   title: "Talk to Customers",
   proofSchema: CustomersProofSchema,
+  /** The calendar event id. */
   sourceKey: (proof) => proof.event_id,
-  sourceTime: (proof) => new Date(proof.starts_at),
+  /** The call's start sets its day (KTD13). */
+  sourceTime: (proof) => {
+    const d = new Date(proof.starts_at);
+    return Number.isNaN(d.getTime()) ? null : d;
+  },
   handlePlatform: () => null,
   features: CUSTOMERS_FEATURES,
-  extractFeatures: ({ proof }) => {
-    const duration = Math.max(0, Math.round((Date.parse(proof.ends_at) - Date.parse(proof.starts_at)) / 60_000));
-    const domains = proof.attendee_domains;
-    return {
-      duration_min: duration,
-      attendee_count: domains.length,
-      attendee_domains: domains,
-      all_personal_email: domains.length > 0 && domains.every((d) => (PERSONAL_EMAIL_DOMAINS as readonly string[]).includes(d)),
-      internal_only: false,
-      has_notes: proof.notes_summary !== null,
-      short_call: duration < 5,
-    };
-  },
-  recheck: async () => ({ status: "agent_attested", source: null, reason: null, info: {} }),
-  verifyHandle: async () => ({ verified: true, reason: null }),
+  extractFeatures: ({ proof }) => extractCustomersFeatures(proof),
+  recheck: (proof, _player, _handle, ctx) => attestCalendarEvent(proof, ctx),
+  verifyHandle: () => verifyNoHandle(),
+  /** A calendar event has no public source to re-fetch at window close. */
   finalCheck: async () => ({ not_counted: [], requests: [] }),
   cheatClasses: CUSTOMERS_CHEAT_CLASSES,
   scoreUnit: "conversations",
-  contract: {
-    paramsSchema: z.object({}),
-    requiredDraftFields: [],
-    render: ({ goal }) => ({
-      send: ["For each customer or prospect call: the calendar event id, start and end, attendee addresses, and an optional short note summary."],
-      scoring: `Each real conversation with a customer or prospect counts once. Reach ${goal}.`,
-      extra_proof: ["Meeting notes, or the original invite email."],
-      agent_instructions:
-        "After each customer call, read the calendar event and call lane_submit_proof with event_id, starts_at, ends_at, attendees and notes.",
-    }),
-    doesNotCount: {
-      all_personal_email: () => "every outside attendee uses a personal email address",
-      internal_only: () => "every attendee is from the player's own company",
-      short_call: () => "the call lasted under five minutes",
-      duration_min: (c) => `the call lasted ${c.op === "lt" || c.op === "lte" ? "at most" : "at least"} ${genericValue(c)} minutes`,
-      attendee_domains: (c) => `an attendee is from ${genericValue(c)}`,
-    },
-  },
-  seedRules: [],
-  examples: [],
-  summarize: (f) => `call, ${Number(f.duration_min ?? 0)} min, ${Number(f.attendee_count ?? 0)} attendees`,
+  contract: customersContract,
+  seedRules: CUSTOMERS_SEED_RULES,
+  examples: CUSTOMERS_EXAMPLES,
+  summarize: summarizeCustomers,
 };
