@@ -188,7 +188,7 @@ export async function seedProof(
     source_key: hex64().slice(0, 40),
     claimed: true,
     payload: input.payload ?? {},
-    features: input.features ?? { files_changed: 3, code_lines_changed: 47 },
+    features: input.features ?? { files_changed: 3, lines_added: 42, lines_removed: 5, code_lines_changed: 47 },
     source_time: at,
     day_index: input.day_index,
     status: input.status ?? "accepted",

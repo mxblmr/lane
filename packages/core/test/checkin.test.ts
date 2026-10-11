@@ -215,10 +215,15 @@ describe("check-in (R11, F3)", () => {
 describe("redacted feed (KTD15)", () => {
   it("renders Lane-built summaries from pack features", async () => {
     const { db, maya, challenge } = await shipWeek();
-    await seedProof(db, { challenge, player: maya, day_index: 0, features: { files_changed: 3, code_lines_changed: 47 } });
+    await seedProof(db, {
+      challenge,
+      player: maya,
+      day_index: 0,
+      features: { files_changed: 3, lines_added: 42, lines_removed: 5, code_lines_changed: 47 },
+    });
     const feed = await buildFeed(db, { challenge_id: challenge._id });
     expect(feed).toHaveLength(1);
-    expect(feed[0]).toMatchObject({ display_name: "Maya", day_index: 0, status: "accepted", summary: "commit, 3 files, 47 lines" });
+    expect(feed[0]).toMatchObject({ display_name: "Maya", day_index: 0, status: "accepted", summary: "commit, 3 files, +42/-5" });
   });
 
   it("an injection string in a display name and a commit message appears in no other player's check-in", async () => {
