@@ -89,7 +89,7 @@ describe("lane_ask (R25, F5)", () => {
     if (!res.ok) return;
     // The answer carries Gary's proof only as the redacted feed line: summary, status and what decided it.
     expect(res.answer).toContain(garyCall._id);
-    expect(res.answer).toContain("call, 25 min, 2 attendees");
+    expect(res.answer).toContain("call, 25 min, 2 outside domains, notes");
     expect(res.answer).toContain('"status":"accepted"');
     expect(res.answer).toContain('"decided_by":"ai"');
     for (const secret of [GARY_NOTES, "acme.com", AI_REASON, "evt_gary"]) expect(res.answer).not.toContain(secret);
