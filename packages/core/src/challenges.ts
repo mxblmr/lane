@@ -39,7 +39,7 @@ import { inTransaction } from "./ledger";
 import { CHECKIN_INTERVAL_MIN, JOIN_CODE_LENGTH, PLAY_CREDIT_LABEL, QUIET_HOURS, SURPRISE_CHECKS_PER_DAY } from "./config";
 import { dayIndexAt, demoClockSettings, finalGraceEnd, isWindowClosed, realClockSettings, windowEnd, windowStart } from "./clock";
 import { writeEvent } from "./events";
-import { checkInTerms, latestContract, publishContract } from "./contracts";
+import { checkInTerms, confirmedParts as requireConfirmed, latestContract, publishContract } from "./contracts";
 
 /**
  * Challenge creation, confirmation and joining (U6, R4 to R10, F1, AE7, KTD4, KTD12, KTD15, KTD21).
@@ -209,19 +209,6 @@ export function buildJoinTerms(challenge: Challenge, pack: AnyPack = getPack(cha
     handle_platform: handlePlatform,
     credit_label: PLAY_CREDIT_LABEL,
   };
-}
-
-function requireConfirmed(challenge: Challenge): {
-  stake: number;
-  winner_rule: WinnerRule;
-  goal: number;
-  clock: ClockSettings;
-} {
-  const { stake, winner_rule, goal, clock } = challenge;
-  if (stake === null || winner_rule === null || goal === null || clock === null) {
-    throw new Error(`Challenge ${challenge._id} is not confirmed.`);
-  }
-  return { stake, winner_rule, goal, clock };
 }
 
 // ---------------------------------------------------------------- draft (R4, AE7)
