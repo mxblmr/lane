@@ -229,15 +229,29 @@ export function fakeProof(challenge: Challenge, player: Player, overrides: Parti
   };
 }
 
-/** AE8: one check-in challenge with an extra-proof request for the player, a standing and a new contract. */
-export function ae8CheckInChallenge(player: Player, challenge = fakeChallenge({ contract_version: 2 })): CheckInChallenge {
+/**
+ * AE8: one check-in challenge with an extra-proof request for the player, a standing and a new
+ * contract. The request is due 90 minutes after `now`.
+ */
+export function ae8CheckInChallenge(
+  player: Player,
+  challenge = fakeChallenge({ contract_version: 2 }),
+  now: Date = T0,
+): CheckInChallenge {
   return {
     challenge,
     membership: fakeMembership(challenge, player),
     day_index: 1,
     contract: fakeContract(challenge, 2),
     contract_changed: true,
-    actions: [fakeInboxItem({ player_id: player._id, challenge_id: challenge._id, subject_proof_id: newId("proof") })],
+    actions: [
+      fakeInboxItem({
+        player_id: player._id,
+        challenge_id: challenge._id,
+        subject_proof_id: newId("proof"),
+        due_at: new Date(now.getTime() + 90 * 60_000),
+      }),
+    ],
     info: [fakeInboxItem({ player_id: player._id, challenge_id: challenge._id, kind: "standing", actor: "agent", instruction: "Maya is first with 2 verified days.", code: null, due_at: null })],
     standings: [fakeStanding(player)],
     feed: [fakeFeedItem(player)],
@@ -374,7 +388,7 @@ export function toolDoubles(): ToolDoubles {
         record("checkin.checkIn", input);
         const now = input.now ?? new Date();
         const player = fakePlayer({ _id: input.player_id });
-        const challenges = checkIns.get(input.player_id) ?? [ae8CheckInChallenge(player)];
+        const challenges = checkIns.get(input.player_id) ?? [ae8CheckInChallenge(player, undefined, now)];
         return { ok: true, player, challenges, next_check_in_at: nextCheckInAt(now) };
       },
     },

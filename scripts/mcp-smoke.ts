@@ -6,14 +6,25 @@
  *   pnpm mcp:smoke --url http://localhost:3000/api/mcp --expect lane_ping
  *
  * A bare origin gets `/api/mcp` appended. `--expect` takes a comma-separated
- * list and defaults to `lane_ping` until U7 lands the eight tools. When
- * `lane_ping` is listed, the check also calls it and prints the server time.
- * Exits 0 when every expected tool is listed, 1 otherwise.
+ * list and defaults to the eight `lane_` tools (U7). When `lane_check_in` is
+ * listed, the check also calls it with no player key, which writes nothing, and
+ * expects an envelope with a recovery instruction and the server time. When
+ * `lane_ping` is listed, the check calls it and prints the server time.
+ * Exits 0 when every expected tool is listed and each probe answers, 1 otherwise.
  */
 import { pathToFileURL } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
-export const DEFAULT_EXPECTED_TOOLS = ["lane_ping"] as const;
+export const DEFAULT_EXPECTED_TOOLS = [
+  "lane_register",
+  "lane_create_challenge",
+  "lane_confirm_challenge",
+  "lane_join_challenge",
+  "lane_check_in",
+  "lane_submit_proof",
+  "lane_ask",
+  "lane_dispute",
+] as const;
 
 export type SmokeOptions = {
   url: string;
@@ -29,8 +40,10 @@ export type ToolComparison = {
 export type SmokeResult = ToolComparison & {
   url: string;
   tools: string[];
-  /** Server time returned by `lane_ping`, when that tool was listed. */
+  /** Server time returned by `lane_ping` or the keyless `lane_check_in` probe. */
   serverTime?: string;
+  /** Recovery instruction from the keyless `lane_check_in` probe, when that tool was listed. */
+  checkInRecovery?: string;
 };
 
 export function parseArgs(argv: string[]): SmokeOptions {
@@ -110,6 +123,27 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
         result.serverTime = structured.server_time;
       }
     }
+
+    if (tools.includes("lane_check_in")) {
+      // No key: Lane must answer with an envelope and a recovery instruction, and write nothing.
+      const probe = await client.callTool({ name: "lane_check_in", arguments: {} });
+      const envelope = probe.structuredContent as
+        | { status?: unknown; server_time?: unknown; error?: { code?: unknown; recovery?: unknown } | null }
+        | undefined;
+      const recovery = envelope?.error?.recovery;
+      if (
+        probe.isError ||
+        envelope?.status !== "error" ||
+        envelope.error?.code !== "unauthenticated" ||
+        typeof recovery !== "string" ||
+        typeof envelope.server_time !== "string"
+      ) {
+        result.ok = false;
+      } else {
+        result.checkInRecovery = recovery;
+        result.serverTime ??= envelope.server_time;
+      }
+    }
     return result;
   } finally {
     await client.close();
@@ -121,11 +155,15 @@ async function main() {
   console.log(`MCP smoke: ${options.url}`);
   const result = await runSmoke(options);
   console.log(`tools/list: ${result.tools.join(", ") || "(none)"}`);
-  if (result.serverTime) console.log(`lane_ping server_time: ${result.serverTime}`);
+  if (result.serverTime) console.log(`server_time: ${result.serverTime}`);
+  if (result.checkInRecovery) console.log(`lane_check_in without a key: ${result.checkInRecovery}`);
   if (result.extra.length > 0) console.log(`not expected (ignored): ${result.extra.join(", ")}`);
   if (result.missing.length > 0) console.error(`MISSING: ${result.missing.join(", ")}`);
   if (result.tools.includes("lane_ping") && !result.serverTime) {
     console.error("FAIL: lane_ping did not return a server_time");
+  }
+  if (result.tools.includes("lane_check_in") && !result.checkInRecovery) {
+    console.error("FAIL: lane_check_in without a key did not return an envelope with a recovery instruction");
   }
   console.log(result.ok ? "PASS" : "FAIL");
   process.exitCode = result.ok ? 0 : 1;

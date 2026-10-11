@@ -1,4 +1,7 @@
+import { challengesService } from "@lane/core/challenges";
+import { contractsService } from "@lane/core/contracts";
 import { provideServices, type ServiceName } from "@lane/core/interfaces";
+import { playersService } from "@lane/core/players";
 
 /**
  * The web app's composition root (U3 interfaces, U7 wiring). Routes call `wireServices()` once at
@@ -16,9 +19,9 @@ export type Wiring = "real" | "stub";
 export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   jobs: "real",
   ledger: "real",
-  players: "stub",
-  challenges: "stub",
-  contracts: "stub",
+  players: "real",
+  challenges: "real",
+  contracts: "real",
   proofs: "stub",
   checkin: "stub",
   disputes: "stub",
@@ -42,7 +45,10 @@ export function wireServices(): void {
   if (wired) return;
   wired = true;
   provideServices({
-    // U6 (players, challenges, contracts), U18 (checkin, disputes, ask, inbox, feed, tick) and
-    // U5 (proofs) are added here as they merge.
+    // U6
+    players: playersService,
+    challenges: challengesService,
+    contracts: contractsService,
+    // U18 (checkin, disputes, ask, inbox, feed, tick) and U5 (proofs) are added here as they merge.
   });
 }

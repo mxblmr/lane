@@ -1,20 +1,16 @@
-import { createHash } from "node:crypto";
 import type { Db } from "mongodb";
+import { findPlayerByKey } from "../players";
 import { fail, type Outcome } from "../schema/common";
-import { collections } from "../schema/collections";
 import type { Player } from "../schema/players";
 
 /**
  * Player identity (KTD4). The player key comes from `lane_register` and arrives either as a
  * bearer header or as a `player_key` argument, never through the MCP session. Lane stores only
- * the SHA-256 hex of the key, so a lookup hashes the key and finds the player by `key_hash`.
+ * the SHA-256 hex of the key; U6's `findPlayerByKey` hashes the key and finds the player.
  * The key never goes into a URL, a log line or any tool text other than the register result.
  */
 
-/** SHA-256 hex of a player key, the value stored in `players.key_hash`. */
-export function hashPlayerKey(key: string): string {
-  return createHash("sha256").update(key.trim(), "utf8").digest("hex");
-}
+export { findPlayerByKey, hashPlayerKey } from "../players";
 
 /** The token from an `Authorization: Bearer <token>` header, or null. */
 export function bearerToken(header: string | null | undefined): string | null {
@@ -50,11 +46,6 @@ export function pickPlayerKey(input: {
   if (bearer) return { ok: true, key: bearer, source: "bearer" };
   if (argument) return { ok: true, key: argument, source: "argument" };
   return fail("unauthenticated", "Lane needs the player key for this call.", RECOVERY_NO_KEY);
-}
-
-/** Finds the player whose key hash matches. One indexed read on `players.key_hash`. */
-export async function findPlayerByKey(db: Db, key: string): Promise<Player | null> {
-  return collections(db).players.findOne({ key_hash: hashPlayerKey(key) });
 }
 
 /** Resolves the calling player, or returns an unauthenticated error with a recovery instruction. */
