@@ -13,8 +13,8 @@
     "test": "pnpm -r test",
     "mcp:smoke": "tsx scripts/mcp-smoke.ts",
     "players:stage": "tsx scripts/players/stage.ts",
-    "e2e": "node -e \"console.error('e2e is a placeholder until U17 lands'); process.exit(1)\"",
-    "standin": "node -e \"console.error('standin is a placeholder until U17 lands'); process.exit(1)\""
+    "e2e": "tsx scripts/e2e/run.ts",
+    "standin": "tsx scripts/standin/run.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
