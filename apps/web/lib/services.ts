@@ -1,4 +1,5 @@
 import { challengesService } from "@lane/core/challenges";
+import { provideU18Services } from "@lane/core/checkin";
 import { contractsService } from "@lane/core/contracts";
 import { provideServices, type ServiceName } from "@lane/core/interfaces";
 import { playersService } from "@lane/core/players";
@@ -22,13 +23,13 @@ export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   players: "real",
   challenges: "real",
   contracts: "real",
+  checkin: "real",
+  inbox: "real",
+  feed: "real",
+  tick: "real",
+  disputes: "real",
+  ask: "real",
   proofs: "stub",
-  checkin: "stub",
-  disputes: "stub",
-  ask: "stub",
-  inbox: "stub",
-  feed: "stub",
-  tick: "stub",
   approvals: "stub",
   learning: "stub",
   lifecycle: "stub",
@@ -44,11 +45,13 @@ let wired = false;
 export function wireServices(): void {
   if (wired) return;
   wired = true;
+  // U6
   provideServices({
-    // U6
     players: playersService,
     challenges: challengesService,
     contracts: contractsService,
-    // U18 (checkin, disputes, ask, inbox, feed, tick) and U5 (proofs) are added here as they merge.
   });
+  // U18: checkin, inbox, feed, tick, disputes and ask, plus the settlement job handler.
+  provideU18Services();
+  // U5 (proofs) is added here when it merges.
 }

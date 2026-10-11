@@ -18,6 +18,11 @@ import {
   type ToolDoubles,
 } from "@lane/core/testing/tools";
 import { playersService } from "@lane/core/players";
+import { challengesService } from "@lane/core/challenges";
+import { contractsService } from "@lane/core/contracts";
+import { provideU18Services } from "@lane/core/checkin";
+import type { LaneServices } from "@lane/core/interfaces";
+import type { OrchestratorDraftOutput } from "@lane/core/schema/agents";
 import * as mcpRoute from "../app/api/mcp/route";
 import { SERVICE_WIRING } from "../lib/services";
 
@@ -199,12 +204,100 @@ describe("results", () => {
   });
 });
 
+describe("scripted client through the real U6 and U18 services", () => {
+  it("completes register, create, confirm, join, check-in and submit", async () => {
+    resetServices();
+    provideServices({ players: playersService, challenges: challengesService, contracts: contractsService });
+    provideU18Services();
+    // U8's orchestrator and U5's pipeline are not merged: doubles stand in for them.
+    const fakeOrchestrator = (async (req: { workspace: string; mode: string }) => {
+      if (req.workspace !== "orchestrator" || req.mode !== "draft") throw new Error(`unexpected agent call ${req.workspace}.${req.mode}`);
+      const output: OrchestratorDraftOutput = {
+        kind: "params",
+        challenge_type: "ship_week",
+        question: null,
+        missing_fields: [],
+        title: "Maya Ship Week",
+        goal: 5,
+        days: 7,
+        params: {},
+      };
+      return { ok: true, status: "completed", output, execution_id: "exec_test", latency_ms: 3 };
+    }) as unknown as LaneServices["agents"]["invoke"];
+    provideServices({ agents: { invoke: fakeOrchestrator }, proofs: doubles.overrides.proofs });
+
+    const maya = await registerPlayer("Maya");
+    const sam = await registerPlayer("Sam");
+
+    // Create and confirm, as Maya's agent with the key as a bearer header.
+    const { joinCode, challengeId } = await withClient(maya.key, async (client) => {
+      const draft = await call(client, "lane_create_challenge", { sentence: "start Ship Week with my friends" });
+      // U6 renders the title from the creator's name and the pack, not from the orchestrator (KTD15).
+      expect(draft.env.data).toMatchObject({ kind: "draft", challenge_type: "ship_week", title: "Maya's Ship Week" });
+      const draftId = (draft.env.data as { draft_id: string }).draft_id;
+      const present = (draft.env.data as { present: { lines: string[] } }).present;
+      expect(present.lines.length).toBeGreaterThan(0);
+
+      const confirmed = await call(client, "lane_confirm_challenge", { draft_id: draftId, winner_rule: "top_score", stake: 50 });
+      expect(confirmed.env.status).toBe("ok");
+      const data = confirmed.env.data as { join_code: string; challenge_id: string; handle_needed: string | null };
+      expect(data.join_code).toMatch(/^[A-Z0-9]{6}$/);
+      expect(data.handle_needed).toBe("github");
+      expect(confirmed.env.lines[0]).toContain("50 play credits (no real money)");
+
+      // The creator binds a handle by joining again with it.
+      const bound = await call(client, "lane_join_challenge", { join_code: data.join_code, handle: "maya-ships" });
+      expect(bound.env.data).toMatchObject({ phase: "joined", already_member: true });
+      expect(bound.env.challenges[0]!.actions.some((a) => a.kind === "bind_code" && a.actor === "player")).toBe(true);
+      return { joinCode: data.join_code, challengeId: data.challenge_id };
+    });
+
+    // Join, check in and submit as Sam's agent with the key as an argument.
+    await withClient(null, async (client) => {
+      const terms = await call(client, "lane_join_challenge", { player_key: sam.key, join_code: joinCode.toLowerCase() });
+      const termsData = terms.env.data as { phase: string; terms_version: string; present: { lines: string[] } };
+      expect(termsData.phase).toBe("terms");
+      expect(termsData.present.lines.join(" ")).toContain("play credits (no real money)");
+      expect(await db.collection("memberships").countDocuments({ player_id: sam.player_id as never })).toBe(0);
+
+      const joined = await call(client, "lane_join_challenge", {
+        player_key: sam.key,
+        join_code: joinCode,
+        accepted_terms_version: termsData.terms_version,
+        handle: "sam-ships",
+      });
+      expect(joined.env.data).toMatchObject({ phase: "joined", already_member: false, stake: 50 });
+
+      const checkIn = await call(client, "lane_check_in", { player_key: sam.key });
+      expect(checkIn.env.status).toBe("ok");
+      expect(checkIn.env.challenges.map((c) => c.challenge_id)).toEqual([challengeId]);
+      const challenge = checkIn.env.challenges[0]!;
+      expect(challenge.standings.map((s) => s.player_id).sort()).toEqual([maya.player_id, sam.player_id].sort());
+      expect(challenge.actions.some((a) => a.kind === "bind_code" && a.actor === "player")).toBe(true);
+
+      const proof = await call(client, "lane_submit_proof", {
+        player_key: sam.key,
+        challenge_id: challengeId,
+        repo: "sam/app",
+        sha: "b".repeat(40),
+      });
+      expect(proof.env).toMatchObject({ status: "ok", data: { outcome: "accepted" } });
+      for (const result of [terms, joined, checkIn, proof]) expect(result.text).not.toContain(sam.key);
+    });
+
+    const balances = await db
+      .collection<{ _id: string; credits: number }>("players")
+      .find({}, { projection: { credits: 1 } })
+      .toArray();
+    expect(balances.map((p) => p.credits)).toEqual([950, 950]);
+  });
+});
+
 describe("wiring", () => {
-  it("runs U6's real services and U3's jobs and ledger, with stubs for units not merged yet", () => {
-    expect(SERVICE_WIRING.players).toBe("real");
-    expect(SERVICE_WIRING.challenges).toBe("real");
-    expect(SERVICE_WIRING.contracts).toBe("real");
-    expect(SERVICE_WIRING.jobs).toBe("real");
-    expect(SERVICE_WIRING.ledger).toBe("real");
+  it("runs U6, U18 and U3's real services, with stubs for units not merged yet", () => {
+    for (const name of ["players", "challenges", "contracts", "checkin", "inbox", "feed", "tick", "disputes", "ask", "jobs", "ledger"] as const) {
+      expect(SERVICE_WIRING[name], name).toBe("real");
+    }
+    expect(SERVICE_WIRING.proofs).toBe("stub");
   });
 });
