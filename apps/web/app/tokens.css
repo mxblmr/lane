@@ -1,0 +1,260 @@
+/* Lane tokens: Warm Studio v1.0.0, copied from the pack (companies/lane/knowledge/design-styles/packs/warm-studio/design-tokens.css)
+   with the Tailwind @theme bridge removed because this app does not use Tailwind. Edit the pack, not this copy. */
+
+/* ==========================================================================
+   Warm Studio - design tokens (CSS custom properties)
+   Pack: warm-studio · v1.0.0 · source of truth for every value in this pack.
+   Extracted from the Lane app (branch redesign/warm, src/app/globals.css) and
+   normalised: radius roles, focus, button sizes and the tint map are settled
+   here (see style-guide.md › Decisions).
+
+   Theming: light is the default on :root. Dark applies with the `.dark` class
+   on <html> (set before paint from the user's System / Light / Dark choice).
+   If you prefer media-driven dark, copy the `.dark` block into
+   `@media (prefers-color-scheme: dark) { :root:not(.light) { … } }`.
+   ========================================================================== */
+
+:root {
+  /* ---- surfaces and text ---- */
+  --background: #fbf7f3;          /* cream page ground, under the wash */
+  --foreground: #1f1b18;          /* ink: all primary text and icons */
+  --card: #ffffff;                /* cards, rows, tab bar, tiles */
+  --card-foreground: #1f1b18;
+  --popover: #ffffff;             /* sheets, dialogs, menus, toasts */
+  --popover-foreground: #1f1b18;
+  --secondary: #f4ede6;           /* inset fill: fields, steppers, chips, soft buttons */
+  --secondary-foreground: #1f1b18;
+  --muted: #f4ede6;               /* same value as secondary */
+  --muted-foreground: #74695f;    /* secondary text, units, micro labels (5.0:1 on page, 4.6:1 on fills) */
+  --border: #efe6dd;              /* hairlines on cards and rows */
+  --input: #e6dbd0;               /* outline-button and field borders, switch track off */
+
+  /* ---- action and feedback ---- */
+  --primary: #1f1b18;             /* the one primary per screen: ink, not orange */
+  --primary-foreground: #ffffff;
+  --accent: #f2873a;              /* today, current bar, caret, focus. Fill only on cream */
+  --accent-foreground: #1f1b18;
+  --accent-soft: #fde7d6;         /* selection, active tab pill */
+  --ring: #f2873a;                /* focus outline */
+  --destructive: #c9302c;         /* destructive text and icons */
+  --destructive-fill: #c9302c;    /* destructive button fill */
+  --destructive-fill-foreground: #ffffff;
+  --on-hero: #ffffff;             /* the white button on a hero gradient (same in dark) */
+  --on-hero-foreground: #171717;
+  --scrim: rgb(0 0 0 / 0.5);      /* behind sheets and dialogs */
+  --switch-thumb: #fbf7f3;
+  --switch-thumb-on: #fbf7f3;
+
+  /* ---- identity pair (Lane: athlete A / athlete B). Rename for other apps. ---- */
+  --athlete-a: #b8500f;           /* darkened from #c85a14 to clear 4.5:1 on cream */
+  --athlete-a-soft: #fde7d6;
+  --athlete-b: #7657d6;
+  --athlete-b-soft: #eee8fc;
+  --pr: #c22f5a;                  /* records / highlight */
+
+  /* ---- category tints: solid glyph on soft fill ---- */
+  --tint-orange: #c85a14;  --tint-orange-soft: #fde7d6;
+  --tint-violet: #7657d6;  --tint-violet-soft: #eee8fc;
+  --tint-blue: #3b8fd9;    --tint-blue-soft: #dcedfa;
+  --tint-pink: #e0558a;    --tint-pink-soft: #fbe1ea;
+  --tint-green: #3e9e6a;   --tint-green-soft: #ddf1e6;
+
+  /* ---- charts (bound once, never auto-assigned) ---- */
+  --chart-1: var(--athlete-a);    /* series A: solid line, circle markers */
+  --chart-2: var(--athlete-b);    /* series B: dashed 4 3, square markers */
+  --chart-3: var(--foreground);   /* combined / total */
+  --chart-4: #ede3d8;             /* reference bars, past weeks, hatch */
+  --chart-5: var(--pr);           /* record dots */
+
+  /* ---- gradients (the only two) ---- */
+  --grad-hero: linear-gradient(120deg, #ffd8bd 0%, #fbd0d9 55%, #f3d6ee 100%);
+  --grad-page:
+    radial-gradient(120% 60% at 30% 0%, rgb(242 135 58 / 0.1), transparent 70%),
+    radial-gradient(120% 60% at 85% 10%, rgb(224 85 138 / 0.08), transparent 70%);
+
+  /* ---- elevation: one shadow, for containers only ---- */
+  --shadow-card: 0 1px 2px rgb(31 27 24 / 0.04);
+
+  /* ---- typography ---- */
+  --font-sans: var(--font-inter, "Inter"), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: var(--font-newsreader, "Newsreader"), ui-serif, Georgia, "Times New Roman", serif;
+  --font-features: "ss01", "cv11";
+
+  --text-display-lg: 80px;        /* hero number */
+  --text-display-md: 56px;
+  --text-display-sm: 40px;
+  --text-clock: 96px;             /* running clock; 72px min, clamp(72px, 24vw, 96px) */
+  --text-title-auth: 34px;        /* serif: sign-in, offline */
+  --text-title-page: 26px;        /* serif: screen title */
+  --text-title-card: 24px;        /* serif: hero card title */
+  --text-title-sheet: 20px;       /* serif: sheet, block title, serif empty state */
+  --text-title-section: 18px;     /* serif: section title */
+  --text-readout: 40px;           /* keypad readout */
+  --text-stat: 28px;              /* stat value, rest timer */
+  --text-value: 20px;             /* number-field value, keypad key */
+  --text-set: 17px;               /* weight and reps in a set row */
+  --text-button-lg: 16px;         /* xl button */
+  --text-body: 15px;              /* row title, body copy */
+  --text-control: 14px;           /* buttons, tabs, right-hand values */
+  --text-secondary: 13px;         /* row subtitles, chips, units */
+  --text-micro: 12px;             /* micro labels */
+  --text-tab: 11px;               /* tab-bar labels */
+  --text-tick: 10px;              /* chart ticks */
+
+  --tracking-display: -0.03em;
+  --tracking-clock: -0.02em;
+  --tracking-serif: -0.01em;
+  --leading-display: 0.95;
+  --leading-title: 1.25;
+
+  /* ---- shape: radius by role ---- */
+  --radius-xs: 6px;               /* group letter, plates */
+  --radius-sm: 12px;              /* icon badge, menu item */
+  --radius-md: 16px;              /* floating: menu, select list, popover, tooltip */
+  --radius-lg: 20px;              /* containers: card, tile, hero, dialog, banner, active set */
+  --radius-xl: 24px;              /* tab-bar top corners */
+  --radius-2xl: 28px;             /* list rows, bottom-sheet top corners */
+  --radius-full: 9999px;          /* every control: buttons, chips, fields, steppers, segments */
+
+  /* ---- space ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --page-gutter: 16px;
+  --content-max: 640px;
+  --gap-header: 24px;             /* page header to first block */
+  --gap-section: 32px;            /* between sections */
+  --gap-title: 12px;              /* section title to content; tile grid gap */
+  --gap-stack: 8px;               /* rows in a stack; neighbouring targets */
+
+  /* ---- sizes ---- */
+  --target-min: 48px;             /* smallest hit area anywhere */
+  --control-sm: 40px;             /* compact button: visual 40, hit area 48 */
+  --control-md: 48px;             /* default button, field, stepper, RPE pill */
+  --control-lg: 56px;             /* primary, row, number field, keypad key */
+  --control-clock: 96px;          /* metcon "Round" button */
+  --nav-height: 64px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* ---- focus ---- */
+  --focus-width: 2px;
+  --focus-offset: 2px;
+  --focus-field-ring: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+
+  /* ---- motion ---- */
+  --ease-lane: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 150ms;         /* color, opacity, background */
+  --duration-flap: 160ms;         /* numeral roll on completion */
+  --duration-sheet: 200ms;        /* sheet slide, dialog fade, lane sweep */
+}
+
+.dark {
+  --background: #161210;
+  --foreground: #f7f0e9;
+  --card: #201b18;
+  --card-foreground: #f7f0e9;
+  --popover: #27211d;
+  --popover-foreground: #f7f0e9;
+  --secondary: #2e2723;
+  --secondary-foreground: #f7f0e9;
+  --muted: #2e2723;
+  --muted-foreground: #a99d93;
+  --border: #342c27;
+  --input: #3d342e;
+
+  --primary: #f7f0e9;
+  --primary-foreground: #161210;
+  --accent: #ff9a52;
+  --accent-foreground: #161210;
+  --accent-soft: #3a2618;
+  --ring: #ff9a52;
+  --destructive: #ff6b5e;
+  --destructive-fill: rgb(255 107 94 / 0.6);
+  --destructive-fill-foreground: #ffffff;
+  --scrim: rgb(0 0 0 / 0.55);
+  --switch-thumb: #f7f0e9;
+  --switch-thumb-on: #161210;
+
+  --athlete-a: #ff9a52;
+  --athlete-a-soft: #3a2618;
+  --athlete-b: #a98fff;
+  --athlete-b-soft: #2b2440;
+  --pr: #ff7597;
+
+  --tint-orange: #ff9a52;  --tint-orange-soft: #3a2618;
+  --tint-violet: #a98fff;  --tint-violet-soft: #2b2440;
+  --tint-blue: #6cb2ef;    --tint-blue-soft: #1c2e3d;
+  --tint-pink: #ef7fac;    --tint-pink-soft: #3a2130;
+  --tint-green: #6fc498;   --tint-green-soft: #1d332a;
+
+  --chart-4: #342c27;
+
+  --grad-hero: linear-gradient(120deg, #4a2c1f 0%, #45263a 55%, #3a2742 100%);
+  --grad-page:
+    radial-gradient(120% 60% at 30% 0%, rgb(255 154 82 / 0.05), transparent 70%),
+    radial-gradient(120% 60% at 85% 10%, rgb(239 127 172 / 0.04), transparent 70%);
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.2);
+}
+
+
+/* ==========================================================================
+   Base and utilities
+   ========================================================================== */
+html { color-scheme: light; caret-color: var(--accent); -webkit-tap-highlight-color: transparent; }
+html.dark { color-scheme: dark; }
+html, body { overscroll-behavior: none; }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: var(--font-features);
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+/* Ambient wash: a fixed layer, never background-attachment: fixed (iOS jank). */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--grad-page); background-repeat: no-repeat;
+}
+::selection { background: var(--accent-soft); color: var(--foreground); }
+::placeholder { color: var(--muted-foreground); opacity: 1; }
+button, [role="button"], a, input, select, textarea { touch-action: manipulation; }
+button, [role="button"] { -webkit-user-select: none; user-select: none; }
+table { font-variant-numeric: tabular-nums; }
+
+/* One focus rule for every control. Text fields add --focus-field-ring instead. */
+:focus-visible { outline: var(--focus-width) solid var(--ring); outline-offset: var(--focus-offset); }
+
+.num { font-variant-numeric: tabular-nums; }
+.micro { font-size: var(--text-micro); line-height: 1.3; font-weight: 500; color: var(--muted-foreground); }
+.display { font-family: var(--font-sans); font-weight: 700; letter-spacing: var(--tracking-display); line-height: var(--leading-display); font-variant-numeric: tabular-nums; }
+.serif { font-family: var(--font-serif); font-weight: 400; letter-spacing: var(--tracking-serif); }
+.bg-hero { background-image: var(--grad-hero); }
+.hairline { border-bottom: 1px solid var(--border); }
+.safe-top { padding-top: max(0.5rem, var(--safe-top)); }
+.safe-bottom { padding-bottom: max(1rem, var(--safe-bottom)); }
+/* Record-zone band behind line charts: 8px period, 4px band, -45deg. */
+.hatch {
+  background-image: repeating-linear-gradient(-45deg, var(--secondary) 0 4px, var(--border) 4px 8px);
+}
+/* Signature motion 2: athlete-colored sweep across the rest bar at zero. */
+.lane-sweep { transform-origin: left center; animation: lane-sweep var(--duration-sheet) var(--ease-lane) forwards; }
+@keyframes lane-sweep {
+  from { transform: translateX(-100%); opacity: 1; }
+  80% { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(0); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
