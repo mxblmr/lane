@@ -26,13 +26,12 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   AGENT_WORKSPACES,
-  APPROVAL_DECISIONS,
   PromoterInterruptSchema,
   type AgentPayload,
   type AgentWorkspace,
-  type ApprovalDecision,
   type PromoterInterrupt,
-} from "./_u3-shim";
+} from "../schema/agents";
+import { APPROVAL_DECISIONS, type ApprovalDecision } from "../schema/approvals";
 
 export const AGENT_ENGINE_DEFAULT_BASE_URL = "https://agentengine.mongodb.com";
 
@@ -56,9 +55,8 @@ export const AGENT_ENGINE_ENV = {
 } as const;
 
 /**
- * Workspace ids for cloud mode. These four names are not in U1's `.env.example` yet and
- * must be added there. The ids come from `agentengine workspace list` after
- * `agentengine init`.
+ * Workspace ids for cloud mode, listed in `.env.example`. The ids come from
+ * `agentengine workspace list` after `agentengine init`.
  */
 export const AGENT_ENGINE_WORKSPACE_ENV: Readonly<Record<AgentWorkspace, string>> = {
   orchestrator: "AGENT_ENGINE_WORKSPACE_ORCHESTRATOR",
@@ -632,9 +630,11 @@ export class AgentClient {
     body: string | undefined,
     signal: AbortSignal,
   ): Promise<{ headers: Headers; json: unknown }> {
+    // `cache` is not in Node's RequestInit type, but Next.js reads it: never cache a poll.
+    const init: RequestInit & { cache: "no-store" } = { method, headers, body, signal, cache: "no-store" };
     let response: Response;
     try {
-      response = await this.fetchImpl(url, { method, headers, body, signal, cache: "no-store" });
+      response = await this.fetchImpl(url, init);
     } catch (error) {
       if (signal.aborted) {
         throw new AgentRequestError("timeout", "Agent Engine request timed out or was aborted");

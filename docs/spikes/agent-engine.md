@@ -62,8 +62,9 @@ Each question names where the answer changes code. Record the result under it.
    and confirm that `decline` never reaches the activate endpoint.
    Result: not yet run.
 8. **Does the resume API accept a service-account token?** The docs say resuming needs
-   `PROJECT_OWNER`. Probe: suspend the promoter, then resume it from the probe-resume
-   route (deferred until U1's app exists) with the service-account token.
+   `PROJECT_OWNER`. Probe: suspend the promoter, then resume it with the service-account
+   token through `POST /api/internal/probe-resume`, body `{"execution_id": "...",
+   "decision": "approve"}`, header `x-lane-role-key` set to the promoter's role key (Max's temporary route from PR #37; body also needs `workspace_id`).
    Result: not yet run.
 9. **Does a fresh promoter execution on a candidate's session start clean** when an
    earlier execution on the same session is still suspended?
