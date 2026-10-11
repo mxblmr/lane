@@ -15,7 +15,7 @@ sandboxes:
   agent:
     secrets: ["*"]
     tools: []
-    # The agent sandbox calls the LLM provider selected by the LLM_API_KEY secret.
+    # Provider access is also declared on the tool sandbox for app.llm calls.
     network:
       egress_mode: allow_list
       egress:
@@ -35,4 +35,8 @@ sandboxes:
       egress_mode: allow_list
       egress:
         - fqdn: lane-seven-phi.vercel.app
+          ports: [443]
+        - fqdn: api.openai.com
+          ports: [443]
+        - fqdn: api.anthropic.com
           ports: [443]
