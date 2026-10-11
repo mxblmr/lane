@@ -1,0 +1,24 @@
+{
+  "description": "Lane Agent Engine project policies (U10, KTD9). Apply only after AE1 has passed once on the deployed site, then rerun AE1. Policy types and endpoints are from https://www.mongodb.com/docs/agentengine/manage/governance/policy-engine/ as read on 2026-10-11. Policies exist at organization and project scope only, not per workspace, so every cap below applies to all four Lane agents.",
+  "scope": "project",
+  "policies": [
+    {
+      "type": "AUTHORIZED_TOOLS",
+      "enabled": true,
+      "value": ["lane_internal_api"],
+      "why": "Rule-lab and the promoter have one tool each, the Lane internal API tool. The orchestrator and the referee have none."
+    },
+    {
+      "type": "AUTHORIZED_MODELS",
+      "enabled": true,
+      "value": ["gpt-5.4-mini", "claude-sonnet-4-5"],
+      "why": "The models in each agent's src/*/llm.ts. Keep this list in sync with them; a model missing here halts every LLM call with policy_denied."
+    },
+    {
+      "type": "MAX_TOOL_CALLS_PER_EXECUTION",
+      "enabled": true,
+      "value": 6,
+      "why": "The red team's per-run tool-call cap. Rule-lab's graph stops itself at the same number (DEFAULT_RED_TEAM_TOOL_CALL_CAP, or LANE_RED_TEAM_TOOL_CALL_CAP), so it finishes with a normal answer instead of a policy_denied halt. The rule-writer needs at most 5 calls with max_revisions 1 as U10 sets it (read, then propose and test twice; each extra revision adds 2) and the promoter 1, so the project-wide cap does not block them. Do not set the graph cap above this value."
+    }
+  ]
+}
