@@ -16,10 +16,9 @@
  *
  * Endpoints are from the Policy Engine docs: GET and POST /api/v1/projects/{projectId}/policies,
  * PUT /api/v1/projects/{projectId}/policies/{policyId}, GET .../policies/effective. The docs
- * page does not show request bodies, so the body below ({type, enabled, value}) is an
- * assumption. The dry run prints the existing policies first: compare their shape with the
- * planned body, and fix `toBody` before running with --apply if they differ. Record what was
- * observed in docs/spikes/agent-engine.md.
+ * API readback on 2026-10-11 confirmed flat int_value and string_list fields.
+ * The local definitions keep their simple value format; toBody maps it to the API.
+ * Dry run prints existing policies before any mutation.
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -34,7 +33,8 @@ const projectId = process.env.AGENT_ENGINE_PROJECT_ID || "";
 const token = process.env.AGENT_ENGINE_TOKEN || "";
 
 function toBody(policy) {
-  return { type: policy.type, enabled: policy.enabled, value: policy.value };
+  const value = Array.isArray(policy.value) ? { string_list: policy.value } : { int_value: policy.value };
+  return { type: policy.type, enabled: policy.enabled, ...value };
 }
 
 async function call(method, path, body) {
