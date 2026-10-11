@@ -1,0 +1,25 @@
+{
+  "name": "lane",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "mcp:smoke": "tsx scripts/mcp-smoke.ts",
+    "players:stage": "node -e \"console.error('players:stage is a placeholder until U13 lands'); process.exit(1)\"",
+    "e2e": "node -e \"console.error('e2e is a placeholder until U17 lands'); process.exit(1)\"",
+    "standin": "node -e \"console.error('standin is a placeholder until U17 lands'); process.exit(1)\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  }
+}

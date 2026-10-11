@@ -1,0 +1,25 @@
+{
+  "name": "@lane/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./db": "./src/db.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "mongodb": "^7.7.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "mongodb-memory-server": "^11.3.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  }
+}
