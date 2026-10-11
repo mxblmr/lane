@@ -2,13 +2,25 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { serveRoutes, type LocalServer } from "@lane/core/testing/http";
-import { compareToolNames, normalizeMcpUrl, parseArgs, runSmoke } from "../mcp-smoke";
+import { DEFAULT_EXPECTED_TOOLS, compareToolNames, normalizeMcpUrl, parseArgs, runSmoke } from "../mcp-smoke";
+
+const EIGHT_TOOLS = [
+  "lane_register",
+  "lane_create_challenge",
+  "lane_confirm_challenge",
+  "lane_join_challenge",
+  "lane_check_in",
+  "lane_submit_proof",
+  "lane_ask",
+  "lane_dispute",
+];
 
 describe("parseArgs", () => {
-  it("reads --url and defaults the expected list to lane_ping", () => {
+  it("reads --url and defaults the expected list to the eight lane_ tools", () => {
+    expect(DEFAULT_EXPECTED_TOOLS).toEqual(EIGHT_TOOLS);
     expect(parseArgs(["--url", "https://lane.example.com"])).toEqual({
       url: "https://lane.example.com/api/mcp",
-      expected: ["lane_ping"],
+      expected: EIGHT_TOOLS,
     });
   });
 
@@ -90,5 +102,50 @@ describe("runSmoke against a live MCP server", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.missing).toEqual(["lane_check_in"]);
+  });
+});
+
+describe("runSmoke against the eight lane_ tools", () => {
+  let server: LocalServer;
+  let checkInStatus = "error";
+
+  beforeAll(async () => {
+    const handler = createMcpHandler((mcp) => {
+      for (const name of EIGHT_TOOLS) {
+        mcp.registerTool(name, { description: `test ${name}`, inputSchema: z.object({}) }, async () => {
+          const envelope = {
+            status: checkInStatus,
+            lines: ["Lane needs the player key for this call."],
+            server_time: "2026-10-11T22:00:00.000Z",
+            next_check_in_at: null,
+            error: checkInStatus === "error" ? { code: "unauthenticated", recovery: "Call lane_register first." } : null,
+            data: null,
+            challenges: [],
+          };
+          return { content: [{ type: "text", text: JSON.stringify(envelope) }], structuredContent: envelope };
+        });
+      }
+    });
+    server = await serveRoutes({ "/api/mcp": { GET: handler, POST: handler } });
+  });
+
+  afterAll(async () => {
+    await server?.close();
+  });
+
+  it("passes when the eight tools are listed and a keyless check-in returns a recovery instruction", async () => {
+    checkInStatus = "error";
+    const result = await runSmoke({ url: normalizeMcpUrl(server.origin), expected: [...DEFAULT_EXPECTED_TOOLS] });
+    expect(result.ok).toBe(true);
+    expect(result.missing).toEqual([]);
+    expect(result.checkInRecovery).toBe("Call lane_register first.");
+    expect(result.serverTime).toBe("2026-10-11T22:00:00.000Z");
+  });
+
+  it("fails when a keyless check-in does not come back as an error envelope", async () => {
+    checkInStatus = "ok";
+    const result = await runSmoke({ url: normalizeMcpUrl(server.origin), expected: [...DEFAULT_EXPECTED_TOOLS] });
+    expect(result.ok).toBe(false);
+    expect(result.checkInRecovery).toBeUndefined();
   });
 });
