@@ -3,6 +3,7 @@ import { provideU18Services } from "@lane/core/checkin";
 import { contractsService } from "@lane/core/contracts";
 import { provideServices, type ServiceName } from "@lane/core/interfaces";
 import { playersService } from "@lane/core/players";
+import { stageService } from "@lane/scripts/seed/reset";
 
 /**
  * The web app's composition root (U3 interfaces, U7 wiring). Routes call `wireServices()` once at
@@ -36,7 +37,7 @@ export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   engine: "stub",
   agents: "stub",
   settlement: "stub",
-  stage: "stub",
+  stage: "real",
 };
 
 let wired = false;
@@ -53,5 +54,7 @@ export function wireServices(): void {
   });
   // U18: checkin, inbox, feed, tick, disputes and ask, plus the settlement job handler.
   provideU18Services();
+  // U13: the KTD22 stage reset behind U12's reset control.
+  provideServices({ stage: stageService });
   // U5 (proofs) is added here when it merges.
 }
