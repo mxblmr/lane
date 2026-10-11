@@ -10,12 +10,12 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createMcpHandler } from "mcp-handler";
 import type { StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { serveRoutes, type LocalServer } from "@lane/core/testing/http";
-import { provideServices, type LaneServices } from "@lane/core/interfaces";
+import { provideServices, services, type LaneServices } from "@lane/core/interfaces";
 import { listLaneTools, runTool, toolInputJsonSchema } from "@lane/core/tools/registry";
 import { getPack } from "@lane/core/packs";
 import { dayIndexAt } from "@lane/core/clock";
 import { collections } from "@lane/core/schema/collections";
-import { fail, newId } from "@lane/core/schema/common";
+import { fail, newId, type Features } from "@lane/core/schema/common";
 import { evaluate } from "@lane/core/rules/engine";
 import type { Proof, ProofStatus, Verdict } from "@lane/core/schema/proofs";
 import type { Rule } from "@lane/core/schema/rules";
@@ -163,6 +163,70 @@ export function proofsDouble(github: FakeGitHub, state: { aiCalls: number }, tim
     timeline?.push(`lane verdict ${status} by ${verdict.decided_by}`);
     return { ok: true, proof, outcome: status, duplicate: false, verdict, request: null, lines: [verdict.reason] };
   };
+}
+
+export const LEARNED_FRIEND_CALLS = "learned-friend-calls";
+
+/**
+ * AE2 doubles: U8's referee triages a dispute (ask_more for a personal-email-only call), and U9
+ * learns an ask_more rule from the dispute, which goes live without approval (R22) and publishes
+ * a contract version through the real U6.
+ */
+export function ae2Doubles(): { learned: number } {
+  const counts = { learned: 0 };
+  const invoke = (async (input: { workspace: string; mode: string; input: { features?: Features } }) => {
+    if (input.workspace !== "referee" || input.mode !== "dispute") throw new Error(`unexpected agent call ${input.workspace}.${input.mode}`);
+    const personal = input.input.features?.all_personal_email === true;
+    return {
+      ok: true,
+      status: "completed",
+      execution_id: newId("job"),
+      latency_ms: 5,
+      output: {
+        outcome: personal ? "ask_more" : "unfounded",
+        reason: personal ? "Every attendee uses a personal email domain." : "Looks like a real customer call.",
+        fix: "Send the meeting notes.",
+        cheat_class: personal ? "all_personal_email" : null,
+        confidence: 0.8,
+        extra_proof: personal ? "Meeting notes for this call." : null,
+      },
+    };
+  }) as unknown as LaneServices["agents"]["invoke"];
+  const fromSource: LaneServices["learning"]["fromSource"] = async (db, input) => {
+    if (input.source !== "dispute" || input.cheat_class !== "all_personal_email") {
+      return { job_id: null, queued: false, skipped_reason: "not an AE2 dispute" };
+    }
+    const col = collections(db);
+    const now = input.now ?? new Date();
+    if (await col.rules.findOne({ challenge_type: input.challenge_type, rule_key: LEARNED_FRIEND_CALLS, status: "active" })) {
+      return { job_id: null, queued: false, skipped_reason: "already learned" };
+    }
+    await col.rules.insertOne({
+      _id: newId("rule"),
+      rule_key: LEARNED_FRIEND_CALLS,
+      version: 1,
+      parent_version: null,
+      challenge_type: input.challenge_type,
+      when: { all: [{ feature: "all_personal_email", op: "eq", value: true }, { feature: "has_notes", op: "eq", value: false }] },
+      action: "ask_more",
+      cheat_class: "all_personal_email",
+      reason: "learned from a dispute",
+      source: "dispute",
+      evidence: { proof_ids: input.proof_id ? [input.proof_id] : [], example_keys: [], dispute_ids: input.dispute_id ? [input.dispute_id] : [] },
+      status: "active",
+      test_results: null,
+      approval_id: null,
+      created_at: now,
+      updated_at: now,
+      activated_at: now,
+      retired_at: null,
+    });
+    counts.learned += 1;
+    await services().contracts.publishForType(db, { challenge_type: input.challenge_type, reason: "rule_activated", now });
+    return { job_id: null, queued: true, skipped_reason: null };
+  };
+  provideServices({ agents: { invoke }, learning: { fromSource } });
+  return counts;
 }
 
 type ToolArgs = Record<string, unknown>;
