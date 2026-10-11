@@ -6,6 +6,20 @@
   "exports": {
     "./package.json": "./package.json",
     "./db": "./src/db.ts",
+    "./schema": "./src/schema/index.ts",
+    "./schema/*": "./src/schema/*.ts",
+    "./packs": "./src/packs/index.ts",
+    "./packs/ship-week": "./src/packs/ship-week/index.ts",
+    "./packs/customers": "./src/packs/customers/index.ts",
+    "./packs/build-in-public": "./src/packs/build-in-public/index.ts",
+    "./interfaces": "./src/interfaces.ts",
+    "./config": "./src/config.ts",
+    "./clock": "./src/clock.ts",
+    "./days": "./src/days.ts",
+    "./ledger": "./src/ledger.ts",
+    "./jobs": "./src/jobs.ts",
+    "./events": "./src/events.ts",
+    "./testing/*": "./src/testing/*.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {
