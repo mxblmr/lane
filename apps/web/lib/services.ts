@@ -4,6 +4,7 @@ import { contractsService } from "@lane/core/contracts";
 import { provideServices, type ServiceName } from "@lane/core/interfaces";
 import { playersService } from "@lane/core/players";
 import { stageService } from "@lane/scripts/seed/reset";
+import { agentsService } from "@lane/core/agents/service";
 import { createProofService } from "@lane/core/proofs/pipeline";
 import { engineService } from "@lane/core/rules/engine";
 import { after } from "next/server";
@@ -38,7 +39,7 @@ export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   learning: "stub",
   lifecycle: "stub",
   engine: "real",
-  agents: "stub",
+  agents: "real",
   settlement: "stub",
   stage: "real",
 };
@@ -62,4 +63,6 @@ export function wireServices(): void {
   // U4: the rule engine. U5: the proof pipeline; a referee reply that misses the request window
   // finishes in Next's `after()` so the verdict still lands.
   provideServices({ engine: engineService, proofs: createProofService({ runAfter: after }) });
+  // U8: the Agent Engine adapter. It reads its configuration on first call, never at build time.
+  provideServices({ agents: agentsService });
 }
