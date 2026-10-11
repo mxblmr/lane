@@ -1,0 +1,17 @@
+# Lane's Agent Engine monorepo (U8, KTD10): one workspace per agent.
+#
+# Run `agentengine init` from this directory: the CLI reads the `agents` list and
+# registers each agent as its own workspace. Names are lowercase with hyphens, so
+# Lane's core maps its `rule_lab` workspace key to `rule-lab`
+# (AGENT_ENGINE_AGENT_NAMES in packages/core/src/agents/client.ts).
+#
+# Egress and secrets are declared per agent, in each agent's own agent.yaml.
+agents:
+  - name: orchestrator
+    path: agents/orchestrator
+  - name: referee
+    path: agents/referee
+  - name: rule-lab
+    path: agents/rule-lab
+  - name: promoter
+    path: agents/promoter

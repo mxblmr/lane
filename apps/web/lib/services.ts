@@ -8,6 +8,7 @@ import { approvalsService } from "@lane/core/rules/approvals";
 import { learningJobHandlers, learningService } from "@lane/core/rules/learning";
 import { lifecycleService } from "@lane/core/rules/lifecycle";
 import { provideJobHandlers } from "@lane/core/tick";
+import { agentsService } from "@lane/core/agents/service";
 import { createProofService } from "@lane/core/proofs/pipeline";
 import { engineService } from "@lane/core/rules/engine";
 import { after } from "next/server";
@@ -42,7 +43,7 @@ export const SERVICE_WIRING: Record<ServiceName, Wiring> = {
   learning: "real",
   lifecycle: "real",
   engine: "real",
-  agents: "stub",
+  agents: "real",
   settlement: "stub",
   stage: "real",
 };
@@ -70,4 +71,6 @@ export function wireServices(): void {
   // tick runs.
   provideServices({ approvals: approvalsService, learning: learningService, lifecycle: lifecycleService });
   provideJobHandlers(learningJobHandlers());
+  // U8: the Agent Engine adapter. It reads its configuration on first call, never at build time.
+  provideServices({ agents: agentsService });
 }

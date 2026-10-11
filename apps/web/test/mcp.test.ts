@@ -294,10 +294,10 @@ describe("scripted client through the real U6 and U18 services", () => {
 });
 
 describe("wiring", () => {
-  it("runs U3, U4, U5, U6, U9, U13 and U18's real services, with stubs for units not merged yet", () => {
-    for (const name of ["players", "challenges", "contracts", "checkin", "inbox", "feed", "tick", "disputes", "ask", "jobs", "ledger", "stage", "engine", "proofs", "approvals", "learning", "lifecycle"] as const) {
+  it("runs U3, U4, U5, U6, U8, U9, U13 and U18's real services, with stubs for units not merged yet", () => {
+    for (const name of ["players", "challenges", "contracts", "checkin", "inbox", "feed", "tick", "disputes", "ask", "jobs", "ledger", "stage", "engine", "proofs", "agents", "approvals", "learning", "lifecycle"] as const) {
       expect(SERVICE_WIRING[name], name).toBe("real");
     }
-    expect(SERVICE_WIRING.agents).toBe("stub");
+    expect(SERVICE_WIRING.settlement).toBe("stub");
   });
 });
