@@ -4,7 +4,9 @@ import { addInboxItem, resolveInboxItem } from "../src/inbox";
 import { dayGraceEnd, demoClockSettings, finalGraceEnd, manualClock, windowEnd } from "../src/clock";
 import { loadDayStatuses } from "../src/days";
 import { queueJob, claimJob } from "../src/jobs";
-import { JOB_RECLAIM_MS, TICK_LEASE_MS } from "../src/config";
+import { JOB_RECLAIM_MS, TICK_LEASE_MS, updateSettings } from "../src/config";
+import { provideServices, resetServices, type SettleResult } from "../src/interfaces";
+import { settlementJobHandler, SETTLEMENT_RETRY_MS, type SurpriseDrawFn } from "../src/tick";
 import { collections } from "../src/schema/collections";
 import { getPack } from "../src/packs/index";
 import type { AnyPack } from "../src/schema/pack";
@@ -28,6 +30,7 @@ afterAll(async () => {
 });
 afterEach(() => {
   resetJobHandlers();
+  resetServices();
 });
 
 const START = new Date("2026-10-11T20:00:00.000Z");
@@ -35,8 +38,10 @@ const at = (sec: number) => new Date(START.getTime() + sec * 1000);
 // Demo clock: 300-second days, 90-second grace, three days.
 const DEMO = demoClockSettings(START, { day_length_sec: 300, days: 3, grace_sec: 90 });
 
-async function world() {
+/** A Ship Week challenge with Maya. Surprise-check drawing is off unless a test turns it on. */
+async function world(opts: { surpriseChecks?: boolean } = {}) {
   const db = await mongo.freshDb();
+  await updateSettings(db, { surprise_checks_enabled: opts.surpriseChecks ?? false }, at(0));
   const maya = await seedPlayer(db, "Maya");
   const challenge = await seedChallenge(db, { creator: maya, clock: DEMO });
   await seedContract(db, challenge, 1);
@@ -254,5 +259,133 @@ describe("job recovery (KTD20)", () => {
     const { runs } = await runTickJobs(db, { clock: manualClock(at(10)) });
     expect(runs).toHaveLength(0);
     expect((await collections(db).jobs.findOne({ dedup_key: "chl_x" }))?.status).toBe("queued");
+  });
+});
+
+describe("surprise-check drawing (R10, KTD13)", () => {
+  const forced = (fractions: number[], count = fractions.length): SurpriseDrawFn => () => ({
+    count,
+    fractions,
+    codes: fractions.map((_, i) => String(4821 + i)),
+  });
+
+  async function crew(opts: { surpriseChecks?: boolean; tokyo?: boolean } = {}) {
+    const w = await world({ surpriseChecks: opts.surpriseChecks ?? true });
+    const priya = await seedPlayer(w.db, "Priya");
+    const sam = await seedPlayer(w.db, "Sam", { time_zone: opts.tokyo ? "Asia/Tokyo" : "America/Los_Angeles" });
+    await seedMembership(w.db, w.challenge, priya);
+    await seedMembership(w.db, w.challenge, sam);
+    return { ...w, priya, sam };
+  }
+
+  const snapshot = async (db: Awaited<ReturnType<typeof world>>["db"]) =>
+    (await collections(db).inbox.find({ kind: "surprise_check" }).toArray())
+      .map((c) => `${c.player_id}:${c.day_index}:${c.slot}:${c.release_at?.toISOString()}:${c.code}`)
+      .sort();
+
+  const perPlayer = async (db: Awaited<ReturnType<typeof world>>["db"]) => {
+    const rows = await collections(db)
+      .inbox.aggregate<{ _id: string; n: number }>([
+        { $match: { kind: "surprise_check" } },
+        { $group: { _id: { $concat: ["$player_id", ":", { $toString: "$day_index" }] }, n: { $sum: 1 } } },
+      ])
+      .toArray();
+    return rows.map((r) => r.n);
+  };
+
+  it("ten ticks within one demo day issue the same surprise checks as one tick, and never more than 3 per player", async () => {
+    const { db } = await crew();
+    await runTick(db, { now: at(1) });
+    const once = await snapshot(db);
+    for (let i = 1; i <= 9; i++) await runTick(db, { now: at(1 + i * 30) });
+    expect(await snapshot(db)).toEqual(once);
+    for (const n of await perPlayer(db)) expect(n).toBeLessThanOrEqual(3);
+  });
+
+  it("a draw asking for five checks stores three per player-day, even with overlapping ticks", async () => {
+    const { db } = await crew();
+    const draw = forced([0.1, 0.4, 0.7, 0.8, 0.9]);
+    await Promise.all([1, 2, 3].map((n) => runTick(db, { now: at(1), holder: `poll-${n}` }, { surpriseDraw: draw })));
+    for (let i = 1; i <= 9; i++) await runTick(db, { now: at(1 + i * 5) }, { surpriseDraw: draw });
+    expect(await perPlayer(db)).toEqual([3, 3, 3]);
+    const maya = await collections(db).inbox.find({ kind: "surprise_check" }).sort({ slot: 1 }).limit(1).toArray();
+    // Slot 0 falls at 0.1 of the 300-second day, so the ticks up to 46 s have released it.
+    expect(maya[0]).toMatchObject({ status: "open", actor: "player", day_index: 0, release_at: at(30) });
+    expect(maya[0]!.due_at!.getTime() - maya[0]!.release_at!.getTime()).toBe(DEMO.grace_sec * 1000);
+  });
+
+  it("draws no check whose grace would touch the player's quiet hours", async () => {
+    const { db, sam } = await crew({ tokyo: true });
+    // 20:00 UTC is 05:00 in Tokyo.
+    await runTick(db, { now: at(1) }, { surpriseDraw: forced([0.1, 0.5, 0.9]) });
+    expect(await collections(db).inbox.countDocuments({ kind: "surprise_check", player_id: sam._id })).toBe(0);
+    expect(await collections(db).inbox.countDocuments({ kind: "surprise_check" })).toBe(6);
+  });
+
+  it("draws nothing while surprise checks are switched off in settings", async () => {
+    const { db } = await crew({ surpriseChecks: false });
+    const result = await runTick(db, { now: at(1) }, { surpriseDraw: forced([0.1, 0.5, 0.9]) });
+    expect(result.details.drawn).toBe(0);
+    expect(await collections(db).inbox.countDocuments({ kind: "surprise_check" })).toBe(0);
+  });
+
+  it("skips a slot whose grace already ended when the day is first drawn", async () => {
+    const { db, maya } = await world({ surpriseChecks: true });
+    await runTick(db, { now: at(200) }, { surpriseDraw: forced([0.0, 0.9]) });
+    const checks = await collections(db).inbox.find({ kind: "surprise_check", player_id: maya._id }).toArray();
+    expect(checks.map((c) => c.slot)).toEqual([1]);
+  });
+});
+
+describe("settlement hand-off (KTD12)", () => {
+  const closedAt = new Date(windowEnd(DEMO).getTime() + 1000);
+  const settleDouble = (result: SettleResult) => {
+    const calls: string[] = [];
+    provideServices({
+      settlement: {
+        settle: async (_db, input) => {
+          calls.push(input.challenge_id);
+          return result;
+        },
+      },
+    });
+    return calls;
+  };
+
+  it("the settlement job calls U11's settle for the closed challenge and finishes", async () => {
+    const { db, challenge } = await world();
+    await runTick(db, { now: closedAt });
+    const calls = settleDouble({ ok: true, status: "paid", snapshot: null, approval_id: null });
+    const { runs } = await runTickJobs(db, { clock: manualClock(finalGraceEnd(DEMO)), handlers: { settlement: settlementJobHandler } });
+    expect(calls).toEqual([challenge._id]);
+    expect(runs.map((r) => r.status)).toEqual(["done"]);
+    expect((await collections(db).jobs.findOne({ kind: "settlement" }))?.result).toMatchObject({ status: "paid" });
+  });
+
+  it("when settle must wait, the job goes back in the queue until the longest open grace ends", async () => {
+    const { db, maya, challenge } = await world();
+    await runTick(db, { now: closedAt });
+    const proof = await seedProof(db, { challenge, player: maya, day_index: 2 });
+    const later = new Date(finalGraceEnd(DEMO).getTime() + 300_000);
+    await addInboxItem(db, extraProofItem({ player_id: maya._id, challenge_id: challenge._id, proof_id: proof._id, due_at: later }), {
+      now: finalGraceEnd(DEMO),
+    });
+    settleDouble({ ok: true, status: "requeued", snapshot: null, approval_id: null });
+    const { runs } = await runTickJobs(db, { clock: manualClock(finalGraceEnd(DEMO)), handlers: { settlement: settlementJobHandler } });
+    expect(runs.map((r) => r.status)).toEqual(["requeued"]);
+    const job = await collections(db).jobs.findOne({ kind: "settlement" });
+    expect(job).toMatchObject({ status: "queued" });
+    expect(job?.due_at).toEqual(later);
+  });
+
+  it("while U11 is not wired, the job waits without using up its attempts", async () => {
+    const { db } = await world();
+    await runTick(db, { now: closedAt });
+    const now = finalGraceEnd(DEMO);
+    const { runs } = await runTickJobs(db, { clock: manualClock(now), handlers: { settlement: settlementJobHandler } });
+    expect(runs.map((r) => r.status)).toEqual(["requeued"]);
+    const job = await collections(db).jobs.findOne({ kind: "settlement" });
+    expect(job?.due_at).toEqual(new Date(now.getTime() + SETTLEMENT_RETRY_MS));
+    expect(job!.attempt).toBeLessThan(job!.max_attempts);
   });
 });

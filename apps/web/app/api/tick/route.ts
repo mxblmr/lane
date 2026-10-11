@@ -1,6 +1,10 @@
 import { after } from "next/server";
 import { laneDb } from "@lane/core/interfaces";
 import { runTick, runTickJobs } from "@lane/core/tick";
+import { provideU18Services } from "@lane/core/checkin";
+
+// Registers U18's services and the settlement job handler in this function instance.
+provideU18Services();
 
 // KTD13 and KTD20: the clock tick and job recovery. Safe to call concurrently and as often as
 // the dashboard polls: a 15-second lease lets one tick run, every transition is conditional,

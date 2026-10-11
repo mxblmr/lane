@@ -22,7 +22,11 @@ import { loadDayStatuses } from "./days";
 import { getPack } from "./packs/index";
 import { deliverInfoItems, inboxService, listOpenActions } from "./inbox";
 import { buildFeed, feedService, safeDisplayName } from "./feed";
-import { tickService } from "./tick";
+import { provideJobHandlers, settlementJobHandler, tickService } from "./tick";
+import { disputesService } from "./disputes";
+// ask.ts imports standingsFor from this module; the cycle is safe because neither side reads the
+// other's exports while loading, only inside functions.
+import { askService } from "./ask";
 
 /**
  * Check-in (U18, R11, F3). One call returns, for every challenge the player is in: open action
@@ -197,9 +201,18 @@ export const checkinService = {
 } satisfies LaneServices["checkin"];
 
 /**
- * Wire every U18 service into the U3 services table: check-in, inbox, feed and tick. The web
- * app's composition root (U7) calls this once at startup. Disputes and ask join in the follow-on.
+ * Wire every U18 service into the U3 services table (check-in, inbox, feed, tick, disputes and
+ * ask) and register the settlement job handler the tick runs. The web app's composition root (U7)
+ * calls this once at startup; calling it again is harmless.
  */
 export function provideU18Services(): void {
-  provideServices({ checkin: checkinService, inbox: inboxService, feed: feedService, tick: tickService });
+  provideServices({
+    checkin: checkinService,
+    inbox: inboxService,
+    feed: feedService,
+    tick: tickService,
+    disputes: disputesService,
+    ask: askService,
+  });
+  provideJobHandlers({ settlement: settlementJobHandler });
 }
