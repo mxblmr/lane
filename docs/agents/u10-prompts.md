@@ -1,8 +1,9 @@
 # U10 prompts: rule-lab and promoter
 
-Prompt text for U8's `packages/core/src/agents/prompts.ts`. KTD11 says prompts live in
-MongoDB and reach the agent in the invoke payload (`AgentPayload.prompt`), so the graphs
-hold none. Fold each section below into the prompt loader under the key shown.
+These are the defaults in `packages/core/src/agents/prompts.ts` (`DEFAULT_AGENT_PROMPTS`),
+kept here with the reasoning behind them. KTD11 says prompts reach the agent in the invoke
+payload (`AgentPayload.prompt`), so the graphs hold none. An operator can override a
+default without a deploy by writing a document to the `agent_prompts` collection.
 
 What the graphs add on their own, so the prompts below must not repeat or contradict it:
 
