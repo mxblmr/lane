@@ -10,16 +10,19 @@ import { COUNTING_PROOF_STATUSES } from "./schema/proofs";
 import type { AnyPack } from "./schema/pack";
 import {
   NotImplementedError,
+  provideServices,
   services,
   type CheckInChallenge,
   type CheckInInput,
   type CheckInResult,
+  type LaneServices,
 } from "./interfaces";
 import { currentDayIndex, nextCheckInAt } from "./clock";
 import { loadDayStatuses } from "./days";
 import { getPack } from "./packs/index";
-import { deliverInfoItems, listOpenActions } from "./inbox";
-import { buildFeed, safeDisplayName } from "./feed";
+import { deliverInfoItems, inboxService, listOpenActions } from "./inbox";
+import { buildFeed, feedService, safeDisplayName } from "./feed";
+import { tickService } from "./tick";
 
 /**
  * Check-in (U18, R11, F3). One call returns, for every challenge the player is in: open action
@@ -191,4 +194,12 @@ export async function checkIn(db: Db, input: CheckInInput, opts: CheckInOptions 
 /** The U18 check-in service, in the shape of `LaneServices["checkin"]`. */
 export const checkinService = {
   checkIn: (db: Db, input: CheckInInput) => checkIn(db, input),
-};
+} satisfies LaneServices["checkin"];
+
+/**
+ * Wire every U18 service into the U3 services table: check-in, inbox, feed and tick. The web
+ * app's composition root (U7) calls this once at startup. Disputes and ask join in the follow-on.
+ */
+export function provideU18Services(): void {
+  provideServices({ checkin: checkinService, inbox: inboxService, feed: feedService, tick: tickService });
+}

@@ -4,7 +4,7 @@ import { collections } from "./schema/collections";
 import type { FeedItem } from "./schema/envelope";
 import type { AnyPack } from "./schema/pack";
 import type { Proof } from "./schema/proofs";
-import type { BuildFeedInput } from "./interfaces";
+import type { BuildFeedInput, LaneServices } from "./interfaces";
 import { getPack } from "./packs/index";
 
 /**
@@ -104,4 +104,4 @@ export async function buildFeed(db: Db, input: BuildFeedInput, opts: FeedOptions
 /** The U18 feed service, in the shape of `LaneServices["feed"]`. */
 export const feedService = {
   build: (db: Db, input: BuildFeedInput) => buildFeed(db, input),
-};
+} satisfies LaneServices["feed"];

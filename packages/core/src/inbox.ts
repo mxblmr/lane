@@ -19,6 +19,7 @@ import type {
   InboxResolveInput,
   InboxResolveResult,
   InboxWriteOptions,
+  LaneServices,
 } from "./interfaces";
 
 /**
@@ -356,4 +357,4 @@ export const inboxService = {
   add: addInboxItem,
   resolve: resolveInboxItem,
   expire: expireInboxItems,
-};
+} satisfies LaneServices["inbox"];

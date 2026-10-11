@@ -5,7 +5,7 @@ import { ACTION_KINDS, type InboxItem } from "./schema/inbox";
 import { TICK_LEASE_ID } from "./schema/ops";
 import type { Proof, ProofHistoryEntry } from "./schema/proofs";
 import type { AnyPack, FinalCheckResult, PackContext } from "./schema/pack";
-import type { TickInput, TickResult } from "./interfaces";
+import type { LaneServices, TickInput, TickResult } from "./interfaces";
 import { TICK_LEASE_MS } from "./config";
 import { finalGraceEnd, isWindowClosed, systemClock, type Clock } from "./clock";
 import { deferQueuedJob, queueJob, reclaimStaleJobs, runDueJobs, type JobHandlers, type RunJobResult } from "./jobs";
@@ -338,4 +338,4 @@ export async function runTickJobs(
 /** The U18 tick service, in the shape of `LaneServices["tick"]`. */
 export const tickService = {
   run: (db: Db, input: TickInput) => runTick(db, input),
-};
+} satisfies LaneServices["tick"];
