@@ -2,7 +2,7 @@
  * A local Lane for the stage runner's tests. It serves the real eight `lane_` tools over MCP
  * (mcp-handler on a local port) through U7's `runTool`, with the real U6, U18 and U14 behind
  * them, like the deployed route. Only U5's proof pipeline is a double: it re-checks commits with
- * the real Ship Week pack against a fake GitHub, evaluates active rules with no AI call, and
+ * the real Ship Week pack against a fake GitHub, evaluates active rules with the real U4 engine, and
  * otherwise calls a referee double that counts AI calls. An AI rejection proposes a reject rule
  * and a pending approval, like U9's learning chain. Test helper only.
  */
@@ -15,8 +15,8 @@ import { listLaneTools, runTool, toolInputJsonSchema } from "@lane/core/tools/re
 import { getPack } from "@lane/core/packs";
 import { dayIndexAt } from "@lane/core/clock";
 import { collections } from "@lane/core/schema/collections";
-import { fail, newId, type Features } from "@lane/core/schema/common";
-import type { Cond, When } from "@lane/core/schema/rule";
+import { fail, newId } from "@lane/core/schema/common";
+import { evaluate } from "@lane/core/rules/engine";
 import type { Proof, ProofStatus, Verdict } from "@lane/core/schema/proofs";
 import type { Rule } from "@lane/core/schema/rules";
 import type { Db } from "../../seed/stage";
@@ -25,30 +25,6 @@ import type { FakeGitHub } from "./fake-github";
 
 /** Cheat classes the referee double rejects, in order. */
 const AI_REJECTS = ["rename_only", "whitespace_only", "docs_only", "typo_only", "empty_commit", "injection_text"] as const;
-
-function condHolds(c: Cond, f: Features): boolean {
-  const v = f[c.feature];
-  switch (c.op) {
-    case "eq":
-      return v === c.value;
-    case "in":
-      return Array.isArray(c.value) && (c.value as unknown[]).includes(v);
-    case "lt":
-      return typeof v === "number" && v < (c.value as number);
-    case "lte":
-      return typeof v === "number" && v <= (c.value as number);
-    case "gt":
-      return typeof v === "number" && v > (c.value as number);
-    case "gte":
-      return typeof v === "number" && v >= (c.value as number);
-    case "matches":
-      return typeof v === "string" && v.toLowerCase().includes(String(c.value).toLowerCase());
-  }
-}
-
-export function whenHolds(w: When, f: Features): boolean {
-  return "all" in w ? w.all.every((c) => condHolds(c, f)) : w.any.some((c) => condHolds(c, f));
-}
 
 export interface FakeLane {
   origin: string;
@@ -130,7 +106,9 @@ export function proofsDouble(github: FakeGitHub, state: { aiCalls: number }, tim
     if (!features) {
       verdict = { ...base, outcome: "reject", decided_by: "authenticity", rule: null, ai_calls: 0, ai_judgment: false, reason: recheck.reason ?? "failed re-check", cheat_class: null };
     } else {
-      const hit = rules.find((r) => r.action === "reject" && whenHolds(r.when, features));
+      // The real U4 engine decides, with no AI call (KTD7).
+      const decided = await evaluate(db, { challenge_type: challenge.type, features });
+      const hit = decided.decision === "reject" && decided.rule ? rules.find((r) => r.rule_key === decided.rule!.rule_key && r.version === decided.rule!.version) : undefined;
       if (hit) {
         verdict = {
           ...base,
