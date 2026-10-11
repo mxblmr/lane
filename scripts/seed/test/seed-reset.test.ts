@@ -17,7 +17,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => {
   await mongo?.stop();
-});
+}, 60_000);
 afterEach(() => {
   resetServices();
 });

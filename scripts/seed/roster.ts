@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { hashPlayerKey } from "@lane/core/players";
 import type { HandlePlatform } from "@lane/core/schema/common";
 
 /**
@@ -59,9 +59,9 @@ export function requireEnv(env: Env, names: string[], purpose: string): Record<s
 const MIN_KEY = 16;
 const MAX_KEY = 200;
 
-/** SHA-256 hex of a player key, the only form Lane stores (KTD4). Matches U6's hashing. */
+/** SHA-256 hex of a player key, the only form Lane stores (KTD4). U6's hashing, so lookups match. */
 export function hashLaneKey(key: string): string {
-  return createHash("sha256").update(key.trim(), "utf8").digest("hex");
+  return hashPlayerKey(key);
 }
 
 export function readLaneKey(env: Env, name: ScriptedPlayerName): string {
