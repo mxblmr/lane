@@ -7,6 +7,7 @@ import type { Approval } from "@lane/core/schema/approvals";
 import type { Rule, GateResult, GateThresholds } from "@lane/core/schema/rules";
 import type { Proof } from "@lane/core/schema/proofs";
 import type { Standing } from "@lane/core/schema/envelope";
+import { wireServices } from "./services";
 import {
   projectApproval,
   projectChallenge,
@@ -25,6 +26,10 @@ import { getPack, renderRuleLine } from "@lane/core/packs";
 import { PLAY_CREDIT_LABEL, readSettings } from "@lane/core/config";
 import { currentDayIndex, dayEnd, dayIndexAt, windowEnd } from "@lane/core/clock";
 import { loadDayStatuses, type DayStatus } from "@lane/core/days";
+
+// Wire every merged owner unit's service once (lib/services.ts). Idempotent; tests that
+// need doubles call provideServices or resetServices after import.
+wireServices();
 
 /**
  * Dashboard data (U12, KTD15, KTD16). Every value returned here comes from a U3 public

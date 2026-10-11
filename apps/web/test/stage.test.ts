@@ -132,7 +132,7 @@ describe("stage screen render", () => {
     const html = render(data, false);
     expect(html).toContain("A proof where the commit only renames identifiers does not count.");
     expect(html).toContain("no-rename-only v2, changes v1");
-    expect(html).toContain("commit, 1 files, 2 lines");
+    expect(html).toContain("commit, 1 file, +1/-1");
     expect(html).toContain("passed: catch rate 0% to 95%, false alarms 0.0%");
   });
 

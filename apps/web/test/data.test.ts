@@ -116,7 +116,7 @@ async function seedStage() {
   const honest = proof(ship, gary, {
     source_key: "3".repeat(40),
     status: "accepted",
-    features: { rename_only: false, code_lines_changed: 42, files_changed: 3 },
+    features: { rename_only: false, code_lines_changed: 42, files_changed: 3, lines_added: 30, lines_removed: 12 },
     received_at: at(100),
     verdict: verdict({ outcome: "accept", decided_by: "ai", ai_judgment: true, cheat_class: null, reason: "Real change." }),
   });
@@ -217,11 +217,11 @@ describe("data routes (KTD15, KTD16)", () => {
     // Feed: newest first, with the rule rejection showing no AI call.
     expect(data.feed.map((p) => p.id)).toEqual([s.ruleReject._id, s.honest._id, s.aiReject._id]);
     const [byRule, accepted, byAi] = data.feed;
-    expect(byRule).toMatchObject({ display_name: "Sam", status: "rejected", summary: "commit, 1 files, 2 lines" });
+    expect(byRule).toMatchObject({ display_name: "Sam", status: "rejected", summary: "commit, 1 file, +1/-1" });
     expect(byRule!.verdict).toMatchObject({ decided_by: "rule", ai_calls: 0, rule: { rule_key: "no-rename-only", version: 2 }, trust_level: "rechecked" });
     expect(byAi!.verdict).toMatchObject({ decided_by: "ai", ai_judgment: true });
     expect(byAi!.verdict?.reason).toContain("only renames a variable");
-    expect(accepted).toMatchObject({ display_name: "Gary", status: "accepted", summary: "commit, 3 files, 42 lines" });
+    expect(accepted).toMatchObject({ display_name: "Gary", status: "accepted", summary: "commit, 3 files, +30/-12" });
 
     // Rule strip: the learned candidate is awaiting approval, with its pack-rendered line.
     expect(data.rules.activity).toMatchObject({ step: "awaiting_approval", gate_passed: true });
@@ -238,7 +238,7 @@ describe("data routes (KTD15, KTD16)", () => {
       action: "reject",
       parent_version: 1,
       line: "A proof where the commit only renames identifiers does not count.",
-      evidence_summary: "commit, 1 files, 2 lines",
+      evidence_summary: "commit, 1 file, +1/-1",
       gate: { passed: true, catch_rate_after: 0.95 },
     });
     const payoutEntry = data.approvals.find((a) => a.kind === "payout");

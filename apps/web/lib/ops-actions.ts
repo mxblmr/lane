@@ -10,7 +10,12 @@ import { projectApproval, projectSettings } from "@lane/core/schema/projections"
 import { updateSettings } from "@lane/core/config";
 import { dayIndexAt } from "@lane/core/clock";
 import { writeEvent } from "@lane/core/events";
+import { wireServices } from "./services";
 import { isNotImplemented } from "./dashboard-data";
+
+// Wire every merged owner unit's service once (lib/services.ts). Idempotent; tests that
+// need doubles call provideServices or resetServices after import.
+wireServices();
 
 /**
  * Operator actions behind the passcode cookie (U12, KTD16). Each returns a status and a JSON

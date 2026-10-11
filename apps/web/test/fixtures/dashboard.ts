@@ -141,7 +141,7 @@ export function proof(c: Challenge, p: Player, over: Partial<Proof> = {}): Proof
     source_key: "f".repeat(40),
     claimed: true,
     payload: { repo: "sam/sandbox", sha: "f".repeat(40) },
-    features: { rename_only: true, code_lines_changed: 2, files_changed: 1 },
+    features: { rename_only: true, code_lines_changed: 2, files_changed: 1, lines_added: 1, lines_removed: 1 },
     source_time: at(10),
     day_index: 0,
     status: "rejected",
