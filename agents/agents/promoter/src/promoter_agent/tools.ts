@@ -54,6 +54,7 @@ function toolError(code: string, message: string): string {
 
 export function registerLaneApiTool(app: App, roleKeyEnv: RoleKeyEnv): void {
   app.tool({
+    isLocal: false,
     description:
       "Call one Lane internal API endpoint listed in the internal_api data. " +
       `Pass the endpoint path (it starts with ${INTERNAL_API_BASE}/) or its url, and the JSON request body. ` +
