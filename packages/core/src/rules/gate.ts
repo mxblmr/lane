@@ -1,8 +1,9 @@
-import type { Features, FeatureValue } from "../schema/common";
+import type { Features } from "../schema/common";
 import type { Example } from "../schema/examples";
-import type { FeatureCatalog } from "../schema/pack";
-import { MATCHES_VALUE_PATTERN, whenConds, type Cond, type RuleAction, type When } from "../schema/rule";
+import type { RuleAction, When } from "../schema/rule";
 import type { GateResult, GateThresholds } from "../schema/rules";
+import { evaluateRules, type EvaluableRule } from "./engine";
+import { validateWhen, type GrammarPack } from "./grammar";
 
 /**
  * The test gate (R21, KTD9, U9 approach step 2).
@@ -19,11 +20,8 @@ import type { GateResult, GateThresholds } from "../schema/rules";
  * an ask-more and a reject all stop a cheat from counting silently. The candidate replaces any
  * active version with the same rule key (its parent) in the "after" set.
  *
- * The gate evaluates candidate sets in memory, which the `engine` service (active rules read
- * from MongoDB) cannot do. The pure matcher and bound check below mirror U4's ported engine
- * (`evaluateRules`, `matchesCondition`) and grammar (`validateWhen`) exactly. Follow-up once
- * this branch is rebased onto the port: call those directly here so the gate and live
- * evaluation share one implementation.
+ * Matching is U4's pure `evaluateRules`, the same code the `engine` service runs on live
+ * proofs, applied to in-memory rule sets. Hard bounds are U4's `validateWhen` against the pack.
  */
 
 /** Tolerance for rate comparisons, so exactly 10 points counts as 10 points. */
@@ -31,6 +29,8 @@ const EPSILON = 1e-9;
 
 export interface GateRule {
   rule_key: string;
+  /** Version, when known; only used to label the rule for the engine. */
+  version?: number;
   when: When;
   action: RuleAction;
 }
@@ -46,119 +46,28 @@ export interface GateInput {
   /** The challenge type's active rules. */
   active: GateRule[];
   examples: GateExample[];
-  catalog: FeatureCatalog;
+  /** The pack's type and feature catalog, for the hard-bound check. */
+  pack: GrammarPack;
   thresholds: GateThresholds;
   now: Date;
 }
 
-// ---------------------------------------------------------------- matching
+// ---------------------------------------------------------------- matching and bounds
 
-function matchesScalar(cond: Cond, actual: string | number | boolean): boolean {
-  const expected: unknown = cond.value;
-  switch (cond.op) {
-    case "eq":
-      return !Array.isArray(expected) && actual === expected;
-    case "lt":
-    case "lte":
-    case "gt":
-    case "gte": {
-      if (typeof actual !== "number" || typeof expected !== "number") return false;
-      if (!Number.isFinite(actual) || !Number.isFinite(expected)) return false;
-      if (cond.op === "lt") return actual < expected;
-      if (cond.op === "lte") return actual <= expected;
-      if (cond.op === "gt") return actual > expected;
-      return actual >= expected;
-    }
-    case "in":
-      return Array.isArray(expected) && (expected as unknown[]).includes(actual);
-    case "matches":
-      // Literal, case-insensitive substring test, never a regex.
-      return (
-        typeof actual === "string" &&
-        typeof expected === "string" &&
-        expected.length > 0 &&
-        actual.toLowerCase().includes(expected.toLowerCase())
-      );
-    default:
-      return false;
-  }
+function toEvaluable(rule: GateRule): EvaluableRule {
+  return { rule_key: rule.rule_key, version: rule.version ?? 1, action: rule.action, when: rule.when };
 }
 
-/**
- * One condition against a proof's features. A missing feature or a type mismatch is a
- * non-match. A list feature (for example attendee domains) matches when any item passes.
- */
-export function condMatches(cond: Cond, features: Features): boolean {
-  if (!Object.hasOwn(features, cond.feature)) return false;
-  const actual = features[cond.feature] as FeatureValue | undefined;
-  if (actual === undefined) return false;
-  if (Array.isArray(actual)) return actual.some((item) => matchesScalar(cond, item));
-  return matchesScalar(cond, actual);
+/** True when any rule in the set matches the features (U4's engine, any action). */
+export function setCatches(rules: readonly GateRule[], features: Features): boolean {
+  if (rules.length === 0) return false;
+  return evaluateRules(rules.map(toEvaluable), features).matched.length > 0;
 }
 
-/** A rule's `when` against a proof's features. */
-export function whenMatches(when: When, features: Features): boolean {
-  if ("all" in when) return when.all.length > 0 && when.all.every((c) => condMatches(c, features));
-  return when.any.some((c) => condMatches(c, features));
-}
-
-/** True when any rule in the set matches. */
-export function setCatches(rules: readonly Pick<GateRule, "when">[], features: Features): boolean {
-  return rules.some((r) => whenMatches(r.when, features));
-}
-
-// ---------------------------------------------------------------- hard bounds
-
-const HAS_ALNUM = /[A-Za-z0-9]/;
-
-/** Hard-limit checks against the pack's feature catalog (KTD8, KTD9). Empty when the rule is inside every bound. */
-export function boundViolations(when: When, catalog: FeatureCatalog): string[] {
-  const out: string[] = [];
-  for (const cond of whenConds(when)) {
-    const spec = Object.hasOwn(catalog, cond.feature) ? catalog[cond.feature] : undefined;
-    if (!spec) {
-      out.push(`unknown feature ${cond.feature}`);
-      continue;
-    }
-    if (!spec.ops.includes(cond.op)) {
-      out.push(`operator ${cond.op} is not allowed on ${cond.feature}`);
-      continue;
-    }
-    const values = Array.isArray(cond.value) ? cond.value : [cond.value];
-    if (cond.op === "matches") {
-      const v = cond.value;
-      if (typeof v !== "string" || !MATCHES_VALUE_PATTERN.test(v) || !HAS_ALNUM.test(v)) {
-        out.push(`${cond.feature} matches needs a literal of 1 to 40 letters, digits, spaces or hyphens`);
-      }
-      continue;
-    }
-    if (cond.op === "in" && (!Array.isArray(cond.value) || cond.value.length === 0)) {
-      out.push(`${cond.feature} in needs a non-empty list`);
-      continue;
-    }
-    for (const v of values) {
-      const typeOk =
-        (spec.kind === "boolean" && typeof v === "boolean") ||
-        (spec.kind === "number" && typeof v === "number" && Number.isFinite(v)) ||
-        ((spec.kind === "string" || spec.kind === "string_list") && typeof v === "string");
-      if (!typeOk) {
-        out.push(`${cond.feature} takes a ${spec.kind} value`);
-        break;
-      }
-      if (typeof v === "string" && v.length === 0) {
-        out.push(`${cond.feature} string values must not be empty`);
-        break;
-      }
-      if (spec.kind === "number" && typeof v === "number" && spec.bound) {
-        const { min, max } = spec.bound;
-        if ((min !== undefined && v < min) || (max !== undefined && v > max)) {
-          out.push(`${cond.feature} value ${v} is outside its hard bound ${min ?? "-inf"} to ${max ?? "inf"}`);
-          break;
-        }
-      }
-    }
-  }
-  return out;
+/** Hard-limit and catalog problems for a rule's `when` (U4's grammar, KTD8, KTD9). Empty when it is valid. */
+export function boundViolations(when: When, pack: GrammarPack): string[] {
+  const res = validateWhen(when, pack);
+  return res.ok ? [] : res.issues.map((issue) => issue.message);
 }
 
 // ---------------------------------------------------------------- the gate
@@ -198,7 +107,7 @@ export function runGate(input: GateInput): GateResult {
 
   const falseAlarmRule = rate(honest.filter((e) => setCatches([candidate], e.features)).length, honest.length);
   const falseAlarmSet = rate(honest.filter((e) => setCatches(after, e.features)).length, honest.length);
-  const violations = boundViolations(candidate.when, input.catalog);
+  const violations = boundViolations(candidate.when, input.pack);
 
   const catchBefore = perBefore[target] ?? 0;
   const catchAfter = perAfter[target] ?? 0;

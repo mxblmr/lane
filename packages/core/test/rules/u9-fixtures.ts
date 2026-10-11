@@ -17,7 +17,7 @@ import type {
   PublishForTypeInput,
   PublishForTypeResult,
 } from "../../src/interfaces";
-import { whenMatches } from "../../src/rules/gate";
+import { evaluateRules } from "../../src/rules/engine";
 import { activeRules } from "../../src/rules/lifecycle";
 import type { GateExample } from "../../src/rules/gate";
 
@@ -237,22 +237,10 @@ export function contractsDouble() {
   };
 }
 
-/** U4 double: evaluates the type's active rules from MongoDB with the gate's matcher. */
+/** U4 double: the type's active rules from MongoDB, decided by U4's pure evaluateRules. */
 export const engineDouble = {
-  evaluate: async (db: Db, input: EvaluateInput): Promise<EvaluateResult> => {
-    const rules = await activeRules(db, input.challenge_type);
-    const matched = rules
-      .filter((r) => whenMatches(r.when, input.features))
-      .map((r) => ({ rule_key: r.rule_key, version: r.version, action: r.action }));
-    const order: RuleAction[] = ["reject", "hold_payout", "ask_more", "flag"];
-    const decisive = order.map((a) => matched.find((m) => m.action === a)).find(Boolean) ?? null;
-    return {
-      decision: decisive ? decisive.action : "none",
-      rule: decisive ? { rule_key: decisive.rule_key, version: decisive.version } : null,
-      matched,
-      evaluated: rules.map((r) => ({ rule_key: r.rule_key, version: r.version })),
-    };
-  },
+  evaluate: async (db: Db, input: EvaluateInput): Promise<EvaluateResult> =>
+    evaluateRules(await activeRules(db, input.challenge_type), input.features),
 };
 
 export function ruleLabOutput(over: Partial<RuleLabOutput> = {}): RuleLabOutput {

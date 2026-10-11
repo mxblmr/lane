@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boundViolations, condMatches, runGate, type GateInput } from "../../src/rules/gate";
+import { boundViolations, runGate, setCatches, type GateInput } from "../../src/rules/gate";
 import { DEFAULT_SETTINGS } from "../../src/config";
 import { SHIP_WEEK_FEATURES } from "../../src/packs/ship-week/index";
 import { CUSTOMERS_FEATURES } from "../../src/packs/customers/index";
@@ -19,9 +19,10 @@ import {
 } from "./u9-fixtures";
 
 const thresholds = DEFAULT_SETTINGS.gate;
+const SHIP_PACK = { type: "ship_week" as const, features: SHIP_WEEK_FEATURES };
 
 function shipGate(over: Partial<GateInput> & Pick<GateInput, "candidate">, specs: ExampleSpec[]): ReturnType<typeof runGate> {
-  return runGate({ active: [], examples: toGateExamples(specs), catalog: SHIP_WEEK_FEATURES, thresholds, now: T0, ...over });
+  return runGate({ active: [], examples: toGateExamples(specs), pack: SHIP_PACK, thresholds, now: T0, ...over });
 }
 
 describe("test gate (R21, KTD9)", () => {
@@ -56,7 +57,7 @@ describe("test gate (R21, KTD9)", () => {
       candidate: { rule_key: "personal-no-notes", when: PERSONAL_NO_NOTES_WHEN, action: "ask_more", cheat_class: "all_personal_email" },
       active: [],
       examples: toGateExamples(ae2Examples()),
-      catalog: CUSTOMERS_FEATURES,
+      pack: { type: "customers", features: CUSTOMERS_FEATURES },
       thresholds,
       now: T0,
     });
@@ -111,25 +112,32 @@ describe("test gate (R21, KTD9)", () => {
     expect(again.reasons[0]).toMatch(/rose 0\.0 points, needs 10\.0/);
   });
 
-  it("rejects a rule outside a predicate's hard bound", () => {
+  it("rejects a rule outside a predicate's hard bound, using U4's grammar", () => {
     const when: When = { all: [{ feature: "code_lines_changed", op: "lte", value: 25 }] };
-    expect(boundViolations(when, SHIP_WEEK_FEATURES)).toEqual(["code_lines_changed value 25 is outside its hard bound 0 to 20"]);
+    expect(boundViolations(when, SHIP_PACK)).toEqual(['feature "code_lines_changed" must stay within its hard bound 0 to 20, got 25']);
     const gate = shipGate({ candidate: { rule_key: "too-wide", when, action: "flag", cheat_class: "rename_only" } }, ae1Examples());
     expect(gate.passed).toBe(false);
     expect(gate.bound_violations).toHaveLength(1);
-    expect(boundViolations({ all: [{ feature: "unknown_feature", op: "eq", value: true }] }, SHIP_WEEK_FEATURES)).toEqual([
-      "unknown feature unknown_feature",
+    expect(boundViolations({ all: [{ feature: "unknown_feature", op: "eq", value: true }] }, SHIP_PACK)).toEqual([
+      'feature "unknown_feature" is not in the ship_week feature catalog',
     ]);
-    expect(boundViolations({ all: [{ feature: "rename_only", op: "gt", value: 1 }] }, SHIP_WEEK_FEATURES)).toEqual([
-      "operator gt is not allowed on rename_only",
+    expect(boundViolations({ all: [{ feature: "rename_only", op: "gt", value: 1 }] }, SHIP_PACK)).toEqual([
+      'operator "gt" is not allowed on feature "rename_only"',
     ]);
+    expect(boundViolations(RENAME_WHEN, SHIP_PACK)).toEqual([]);
   });
 
-  it("matches a list feature when any item passes, and treats a missing feature as no match", () => {
+  it("catches through U4's matcher: list features match on any item, missing features never match", () => {
+    const rule = (when: When) => [{ rule_key: "r", when, action: "flag" as const }];
     const f = callFeatures({ attendee_domains: ["acme.com", "gmail.com"] });
-    expect(condMatches({ feature: "attendee_domains", op: "in", value: ["gmail.com"] }, f)).toBe(true);
-    expect(condMatches({ feature: "attendee_domains", op: "in", value: ["yahoo.com"] }, f)).toBe(false);
-    expect(condMatches({ feature: "not_there", op: "eq", value: true }, f)).toBe(false);
-    expect(condMatches({ feature: "message_matches", op: "matches", value: "WIP" }, shipFeatures({ message_matches: "wip: tidy" }))).toBe(true);
+    expect(setCatches(rule({ all: [{ feature: "attendee_domains", op: "in", value: ["gmail.com"] }] }), f)).toBe(true);
+    expect(setCatches(rule({ all: [{ feature: "attendee_domains", op: "in", value: ["yahoo.com"] }] }), f)).toBe(false);
+    expect(setCatches(rule({ all: [{ feature: "not_there", op: "eq", value: true }] }), f)).toBe(false);
+    expect(
+      setCatches(rule({ all: [{ feature: "message_matches", op: "matches", value: "WIP" }] }), shipFeatures({ message_matches: "wip: tidy" })),
+    ).toBe(true);
+    // Any action counts as caught, and an empty set catches nothing.
+    expect(setCatches([{ rule_key: "r", when: RENAME_WHEN, action: "ask_more" }], shipFeatures({ rename_only: true }))).toBe(true);
+    expect(setCatches([], shipFeatures({ rename_only: true }))).toBe(false);
   });
 });

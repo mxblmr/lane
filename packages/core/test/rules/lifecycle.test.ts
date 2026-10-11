@@ -259,6 +259,26 @@ describe("rule lifecycle (KTD10, R21 to R23)", () => {
     if (!invalid.ok) expect(invalid.error.code).toBe("invalid_input");
   });
 
+  it("proposals go through U4's validateRule: unknown features, bad operators and out-of-bound values are refused unstored", async () => {
+    const db = await mongo.freshDb();
+    const cases: { when: When; message: string }[] = [
+      { when: { all: [{ feature: "made_up", op: "eq", value: true }] }, message: 'feature "made_up" is not in the ship_week feature catalog' },
+      { when: { all: [{ feature: "rename_only", op: "gt", value: 1 }] }, message: 'operator "gt" is not allowed on feature "rename_only"' },
+      { when: { all: [{ feature: "code_lines_changed", op: "lte", value: 25 }] }, message: "hard bound 0 to 20, got 25" },
+    ];
+    for (const c of cases) {
+      const p = await proposeRule(db, proposal({ challenge_type: "ship_week", when: c.when, action: "reject", cheat_class: "rename_only" }), { now: T0 });
+      expect(p.ok).toBe(false);
+      if (p.ok) continue;
+      expect(p.error.code).toBe("invalid_input");
+      expect(p.error.message).toContain(c.message);
+    }
+    const unknownType = await proposeRule(db, proposal({ challenge_type: "nope" as never, when: RENAME_WHEN, action: "reject", cheat_class: "rename_only" }), { now: T0 });
+    expect(unknownType.ok).toBe(false);
+    if (!unknownType.ok) expect(unknownType.error.message).toContain("challenge_type");
+    expect(await collections(db).rules.countDocuments()).toBe(0);
+  });
+
   it("rejecting is idempotent and an active rule cannot be rejected", async () => {
     const db = await mongo.freshDb();
     provideServices({ contracts: contractsDouble().service });

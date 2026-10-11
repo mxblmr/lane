@@ -391,18 +391,21 @@ async function writeRule(db: Db, p: LearningPayload, pack: AnyPack, noEgress: bo
       },
       { now, pack },
     );
-    if (!proposed.ok) break;
-    ids.push(proposed.rule._id);
-    const tested = await testCandidate(db, proposed.rule._id, { now, pack });
-    if (!tested.ok || tested.gate.passed || round === RULE_WRITER_MAX_REVISIONS) break;
+    let feedback: string;
+    if (!proposed.ok) {
+      // U4's grammar refused it (catalog, operator, type or hard bound): the rule-writer may revise.
+      feedback = `Your previous proposal was invalid: ${proposed.error.message}`;
+    } else {
+      ids.push(proposed.rule._id);
+      const tested = await testCandidate(db, proposed.rule._id, { now, pack });
+      if (!tested.ok || tested.gate.passed) break;
+      feedback = `Your previous proposal failed the test gate: ${tested.gate.reasons.join("; ")}`;
+    }
+    if (round === RULE_WRITER_MAX_REVISIONS) break;
     const retry = await services().agents.invoke({
       workspace: "rule_lab",
       mode: "write_rule",
-      input: {
-        ...input,
-        evidence: [...ev.quoted, quote(`Your previous proposal failed the test gate: ${tested.gate.reasons.join("; ")}`)],
-        max_revisions: 0,
-      },
+      input: { ...input, evidence: [...ev.quoted, quote(feedback)], max_revisions: 0 },
       meta,
     });
     if (!retry.ok || retry.status !== "completed") throw agentFailure("rule-lab", retry);

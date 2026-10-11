@@ -339,6 +339,35 @@ describe("learning chain (R20 to R24, KTD10, KTD20)", () => {
     expect(await collections(db).approvals.countDocuments()).toBe(1);
   });
 
+  it("no-egress: a proposal U4's grammar refuses is fed back to rule-lab for its one revision", async () => {
+    const outOfBound: When = { all: [{ feature: "code_lines_changed", op: "lte", value: 25 }] };
+    let calls = 0;
+    const { db, agents } = await setup(() => ({
+      ruleLab: async (input) => {
+        calls += 1;
+        const when = calls === 1 ? outOfBound : RENAME_WHEN;
+        return ruleLabOutput({
+          proposal: proposal({ challenge_type: input.challenge_type, when, action: "reject", cheat_class: "rename_only", rule_key: "rename-only" }),
+        });
+      },
+      promoter: suspendingPromoter,
+    }))();
+    await insertExamples(db, "ship_week", ae1Examples());
+    const { queued } = await aiRejection(db);
+    const run = await runLearningJob(db, queued.job_id as string, { noEgress: true });
+    expect(run?.status).toBe("done");
+
+    const labCalls = agents.ruleLabInvokes();
+    expect(labCalls).toHaveLength(2);
+    const retryEvidence = (labCalls[1]?.input as RuleLabInput).evidence.map((e) => e.quoted_data).join(" ");
+    expect(retryEvidence).toContain("was invalid");
+    expect(retryEvidence).toContain("hard bound 0 to 20, got 25");
+    // The refused proposal was never stored; only the revision exists.
+    const rules = await collections(db).rules.find({ rule_key: "rename-only" }).toArray();
+    expect(rules.map((r) => r.status)).toEqual(["pending_approval"]);
+    expect(agents.promoterInvokes()).toHaveLength(1);
+  });
+
   it("no-egress: a promoter returning activated for a reject rule without approval does not activate it", async () => {
     const { db, contracts } = await setup(() => ({
       ruleLab: async (input) =>

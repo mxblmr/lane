@@ -1,7 +1,7 @@
 import type { Db } from "mongodb";
-import { fail, newId, type ChallengeType, type Id, type Outcome, type RuleRef } from "../schema/common";
+import { ChallengeTypeSchema, fail, newId, type ChallengeType, type Id, type Outcome, type RuleRef } from "../schema/common";
 import { collections, isDuplicateKeyError } from "../schema/collections";
-import { actionNeedsApproval, RuleProposalSchema, type RuleStatus } from "../schema/rule";
+import { actionNeedsApproval, type RuleStatus } from "../schema/rule";
 import type { GateResult, Rule } from "../schema/rules";
 import type { AnyPack } from "../schema/pack";
 import { getPack, renderRuleLine } from "../packs/index";
@@ -10,6 +10,7 @@ import { writeEvent } from "../events";
 import { inTransaction } from "../ledger";
 import { services, type LaneServices, type RollbackRuleInput, type RollbackRuleResult } from "../interfaces";
 import { runGate } from "./gate";
+import { validateRule } from "./grammar";
 import { listExamples } from "./examples";
 
 /**
@@ -77,16 +78,21 @@ function defaultRuleKey(cheatClass: string): string {
  * parent whose key is already active is treated as a change to that active version.
  */
 export async function proposeRule(db: Db, proposal: unknown, opts: LifecycleOptions = {}): Promise<Outcome<{ rule: Rule }>> {
-  const parsed = RuleProposalSchema.safeParse(proposal);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
+  // U4's grammar: shape, the pack's feature catalog, allowed operators, value types and hard bounds.
+  const type = ChallengeTypeSchema.safeParse((proposal as { challenge_type?: unknown } | null)?.challenge_type);
+  if (!type.success) {
+    return fail("invalid_input", "Invalid rule proposal: challenge_type is missing or unknown.", "Send the challenge type the rule is for.");
+  }
+  const validated = validateRule(proposal, opts.pack ?? getPack(type.data));
+  if (!validated.ok) {
+    const issues = validated.issues.slice(0, 3).map((i) => `${i.path || "root"}: ${i.message}`).join("; ");
     return fail(
       "invalid_input",
-      `Invalid rule proposal at ${issue?.path.join(".") || "root"}: ${issue?.message ?? "invalid"}`.slice(0, 300),
-      "Send a proposal that matches the rule grammar: when, action, cheat_class, reason, source, evidence.",
+      `Invalid rule proposal: ${issues}`.slice(0, 300),
+      "Send a proposal that matches the rule grammar and the pack's predicate catalog and hard bounds.",
     );
   }
-  const p = parsed.data;
+  const p = validated.value;
   const now = opts.now ?? new Date();
   const col = collections(db).rules;
 
@@ -177,10 +183,10 @@ export async function testCandidate(
     listExamples(db, rule.challenge_type),
   ]);
   const gate = runGate({
-    candidate: { rule_key: rule.rule_key, when: rule.when, action: rule.action, cheat_class: rule.cheat_class },
+    candidate: { rule_key: rule.rule_key, version: rule.version, when: rule.when, action: rule.action, cheat_class: rule.cheat_class },
     active,
     examples,
-    catalog: pack.features,
+    pack,
     thresholds: settings.gate,
     now,
   });
