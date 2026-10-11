@@ -11,7 +11,7 @@ This runbook covers setup, the reset before every run, the stage script with AE1
 | Production alias | https://lane-seven-phi.vercel.app |
 | Muse connector (MCP, streamable HTTP, no auth) | https://lane-seven-phi.vercel.app/api/mcp |
 | JSON ping (U1) | https://lane-seven-phi.vercel.app/api/v1/ping |
-| OpenAPI stub (U1, U19) | https://lane-seven-phi.vercel.app/api/v1/openapi.json |
+| OpenAPI stub (U1) | https://lane-seven-phi.vercel.app/api/v1/openapi.json |
 | Database health | https://lane-seven-phi.vercel.app/api/health/db |
 | Judges' dashboard, three challenges (U12) | https://lane-seven-phi.vercel.app/ |
 | Stage screen, one challenge (U12) | https://lane-seven-phi.vercel.app/c/<challenge id> |
@@ -57,7 +57,9 @@ Done by Max or Antoine before 4:30 PM. Keys go into the team secret store and th
 
 ## Muse connector setup (tested live today)
 
-1. In a Muse chat, add a custom connector by asking Muse to connect to `https://lane-seven-phi.vercel.app/api/mcp`. Muse connects over streamable HTTP with no auth.
+Full results: `docs/spikes/muse-connector.md` (U2).
+
+1. In a Muse chat, add a custom connector by asking Muse to connect to `https://lane-seven-phi.vercel.app/api/mcp`. Settings → Connectors has no custom-connector entry; chat is the only route. Muse connects over streamable HTTP with no auth and sends the Lane key as the `player_key` argument.
 2. On the first call Muse asks "Allow Muse to share information with lane-seven-phi.vercel.app?". Choose **Always allow this site**. Without it, Muse asks again on every call and the routine stalls. It is already set to always allow on the presenter account; check it again after any connector change.
 3. Muse supports scheduled tasks at a 5-minute interval. The contract asks for a 27-minute routine (R10). On stage the presenter triggers check-ins by asking Muse directly (R12), so the routine interval does not gate the demo.
 4. If the pinned deployment has a different host than the production alias, keep Muse on the production alias. Muse's "always allow" is per site, and the alias points at the pinned deployment anyway.
@@ -114,7 +116,8 @@ All credits are play credits, no real money (R7). Say it once on stage.
 | Muse cannot call Lane by any route (2:30 PM checkpoint) | Scripted players carry the demo. Max narrates what Muse would do and runs `pnpm standin --url <url>` on the laptop to show an agent that knows only the connector joining and checking in. |
 | Muse calls work but each call asks "Allow Muse to share information..." | Choose "Always allow this site". If it keeps asking, drive check-ins manually on stage (R12) by asking Muse each time. |
 | Muse routine stalls on approval prompts | Skip the routine. Max asks Muse to check in or send proof on cue (R12). |
-| MCP route fails for Muse but JSON works | Use the JSON mirror (U19) at `/api/v1/` through Muse's API-based custom connector. |
+| A scheduled run does not fire, or forgets the player key between runs (untested in U2) | Ask Muse to check in manually (R12). Check key persistence once during a rehearsal, after the database is connected. |
+| MCP route fails for Muse on stage | There is no JSON mirror (U19 was closed after U2 showed MCP works). Use the scripted players and `pnpm standin` from the laptop, as in the first row. |
 | Agents not deployed by 2:45 PM, or Agent Engine preview breaks | Run `agentengine dev up` on the fallback laptop behind a public tunnel and switch the deployed core's agent mode to `local`. In local mode the dashboard's approve activates the rule through U9 directly, and the approval record still gates it. Tell the judges the agents run locally. |
 | Resume refuses the service-account token | Approve on Lane's dashboard first (records the approval), then approve on Agent Engine's Pending Reviews page. |
 | Agent egress to Lane blocked | Switch to no-egress mode: the core runs the gate between two rule-lab invocations and applies the promoter's decision through U9. Activation still needs the approved record. |
